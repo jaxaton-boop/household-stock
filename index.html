@@ -300,11 +300,12 @@
   <div class="auth-card" id="authCard">
     <div class="eyebrow" style="text-align:left;margin-bottom:14px;">Household · Live list</div>
     <h2 id="authTitle">Sign in to view the list</h2>
-    <p id="authSub">Enter your email and we'll send you a sign-in link. Only invited household emails can access this list.</p>
-    <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email">
-    <button id="authBtn" type="button">Send me a sign-in link</button>
+    <p id="authSub">Enter the email and password you were given. Only invited household accounts can access this list.</p>
+    <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username">
+    <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="authBtn" type="button">Sign in</button>
     <div class="error-msg" id="authError"></div>
-    <div class="auth-note" id="authNote"></div>
+    <div class="auth-note"><a href="#" id="forgotPasswordLink" style="color:var(--paper-dim);">Forgot your password?</a></div>
   </div>
 
   <!-- Main app (shown once signed in) -->
@@ -341,8 +342,8 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getAuth, sendSignInLinkToEmail, isSignInWithEmailLink,
-      signInWithEmailLink, onAuthStateChanged, signOut
+      getAuth, signInWithEmailAndPassword, sendPasswordResetEmail,
+      onAuthStateChanged, signOut
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import {
       getFirestore, collection, addDoc, deleteDoc, doc,
@@ -365,20 +366,18 @@
       appId: "1:829926014511:web:1a11af405e25a7555dd0da"
     };
 
-    // Where the sign-in email link should send people back to.
-    const SIGN_IN_REDIRECT_URL = window.location.href.split('?')[0];
-    const EMAIL_STORAGE_KEY = 'householdStockSignInEmail';
-
     let db, auth;
     const authCard = document.getElementById('authCard');
     const authTitle = document.getElementById('authTitle');
     const authSub = document.getElementById('authSub');
     const authEmail = document.getElementById('authEmail');
+    const authPassword = document.getElementById('authPassword');
     const authBtn = document.getElementById('authBtn');
     const authError = document.getElementById('authError');
     const appWrap = document.getElementById('appWrap');
     const signedInAs = document.getElementById('signedInAs');
     const signOutBtn = document.getElementById('signOutBtn');
+    const forgotPasswordLink = document.getElementById('forgotPasswordLink');
 
     try {
       const app = initializeApp(firebaseConfig);
@@ -388,45 +387,41 @@
       authError.textContent = 'Firebase config missing or invalid — see README.md to finish setup.';
     }
 
-    // --- Handle arriving via the emailed sign-in link ---
-    async function completeSignInIfNeeded() {
-      if (!auth || !isSignInWithEmailLink(auth, window.location.href)) return;
-
-      let email = window.localStorage.getItem(EMAIL_STORAGE_KEY);
-      if (!email) {
-        email = window.prompt('Confirm your email to finish signing in:');
-      }
-      if (!email) return;
-
-      try {
-        await signInWithEmailLink(auth, email, window.location.href);
-        window.localStorage.removeItem(EMAIL_STORAGE_KEY);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } catch (err) {
-        authError.textContent = 'That sign-in link is invalid or expired. Request a new one below.';
-      }
-    }
-
     authBtn.addEventListener('click', async () => {
       const email = authEmail.value.trim();
+      const password = authPassword.value;
       authError.textContent = '';
-      if (!email) { authError.textContent = 'Enter your email first.'; return; }
+      if (!email || !password) { authError.textContent = 'Enter both your email and password.'; return; }
       if (!auth) { authError.textContent = 'Firebase is not configured yet.'; return; }
 
       authBtn.disabled = true;
       try {
-        await sendSignInLinkToEmail(auth, email, {
-          url: SIGN_IN_REDIRECT_URL,
-          handleCodeInApp: true
-        });
-        window.localStorage.setItem(EMAIL_STORAGE_KEY, email);
-        authTitle.textContent = 'Check your email';
-        authSub.textContent = `We sent a sign-in link to ${email}. Open it on this device to continue.`;
-        authEmail.classList.add('hidden');
-        authBtn.classList.add('hidden');
+        await signInWithEmailAndPassword(auth, email, password);
+        // onAuthStateChanged handles showing the app once this resolves.
       } catch (err) {
-        authError.textContent = 'Could not send the link — check the email and try again.';
+        if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+          authError.textContent = "That email/password combination isn't recognised — check with whoever set this up.";
+        } else if (err.code === 'auth/too-many-requests') {
+          authError.textContent = 'Too many attempts — wait a few minutes and try again.';
+        } else {
+          authError.textContent = 'Could not sign in — check your connection and try again.';
+        }
+      } finally {
         authBtn.disabled = false;
+      }
+    });
+
+    forgotPasswordLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const email = authEmail.value.trim();
+      authError.textContent = '';
+      if (!email) { authError.textContent = 'Enter your email above first, then click "Forgot your password?" again.'; return; }
+      try {
+        await sendPasswordResetEmail(auth, email);
+        authError.textContent = '';
+        authSub.textContent = `A password reset link has been sent to ${email}.`;
+      } catch (err) {
+        authError.textContent = 'Could not send a reset email for that address.';
       }
     });
 
@@ -445,8 +440,6 @@
         authCard.classList.remove('hidden');
       }
     });
-
-    completeSignInIfNeeded();
 
     // ---------------------------------------------------------------
     // Everything below only runs once signed in AND approved by the
