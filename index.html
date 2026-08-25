@@ -194,6 +194,51 @@
     font-family: 'IBM Plex Mono', monospace;
   }
 
+  /* --- History log --- */
+  .history-section { margin-top: 30px; }
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .history-header h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--paper-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .download-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--paper-dim);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    padding: 6px 11px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .download-btn:hover { color: var(--paper); border-color: var(--paper-dim); }
+  .download-btn:disabled { opacity: 0.4; cursor: default; }
+  .history-log {
+    background: #1a1e15;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    max-height: 260px;
+    overflow-y: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--paper-dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .history-log .empty { border: none; padding: 8px 0; text-align: left; }
+
   /* --- Sign-in screen --- */
   .auth-card {
     background: var(--surface);
@@ -283,6 +328,14 @@
       <button type="submit">Add item</button>
     </form>
     <div class="error-msg" id="errorMsg"></div>
+
+    <div class="history-section">
+      <div class="history-header">
+        <h2>History log</h2>
+        <button class="download-btn" id="downloadLogBtn" type="button">Download .txt</button>
+      </div>
+      <div class="history-log" id="historyLog">Loading…</div>
+    </div>
   </div>
 
   <script type="module">
@@ -293,8 +346,12 @@
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import {
       getFirestore, collection, addDoc, deleteDoc, doc,
-      updateDoc, onSnapshot, increment
+      updateDoc, onSnapshot, increment, query, orderBy, limit
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // Identifies which list these history entries belong to — change this if
+    // you ever reuse this app for a second, separate list.
+    const DATABASE_NAME = 'meal_prep';
 
     // ---------------------------------------------------------------
     // PASTE YOUR OWN FIREBASE CONFIG HERE (see README.md, Step 1-2)
@@ -375,8 +432,10 @@
 
     signOutBtn.addEventListener('click', () => signOut(auth));
 
+    let currentUserEmail = null;
     onAuthStateChanged(auth, (user) => {
       if (user) {
+        currentUserEmail = user.email;
         authCard.classList.add('hidden');
         appWrap.classList.remove('hidden');
         signedInAs.textContent = `Signed in as ${user.email}`;
@@ -400,6 +459,76 @@
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
     const errorMsg = document.getElementById('errorMsg');
+    const historyLogEl = document.getElementById('historyLog');
+    const downloadLogBtn = document.getElementById('downloadLogBtn');
+
+    let latestHistoryLines = [];
+
+    function formatHistoryLine(dateStr, timeStr, user, item, prevQty, newQty) {
+      // date, time, user, database name, item name, prev quantity, new quantity
+      return `${dateStr}, ${timeStr}, ${user}, ${DATABASE_NAME}, ${item}, ${prevQty}, ${newQty}`;
+    }
+
+    async function logChange(itemName, prevQty, newQty) {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-GB'); // dd/mm/yyyy
+      const timeStr = now.toLocaleTimeString('en-GB', { hour12: false }); // HH:MM:SS
+      try {
+        await addDoc(collection(db, "history"), {
+          date: dateStr,
+          time: timeStr,
+          user: currentUserEmail || 'unknown',
+          database: DATABASE_NAME,
+          item: itemName,
+          prevQty,
+          newQty,
+          sortKey: now.getTime()
+        });
+      } catch (err) {
+        // Don't block the main action if logging fails — just surface it quietly.
+        console.error('Could not write history entry:', err);
+      }
+    }
+
+    function startHistoryListener() {
+      if (!db) return;
+      const historyCol = collection(db, "history");
+      const historyQuery = query(historyCol, orderBy("sortKey", "desc"), limit(500));
+      onSnapshot(historyQuery,
+        (snapshot) => {
+          const entries = snapshot.docs.map(d => d.data());
+          if (entries.length === 0) {
+            historyLogEl.innerHTML = `<div class="empty">No changes logged yet.</div>`;
+            latestHistoryLines = [];
+            downloadLogBtn.disabled = true;
+            return;
+          }
+          latestHistoryLines = entries.map(en =>
+            formatHistoryLine(en.date, en.time, en.user, en.item, en.prevQty, en.newQty)
+          );
+          historyLogEl.textContent = latestHistoryLines.join('\n');
+          downloadLogBtn.disabled = false;
+        },
+        (err) => {
+          historyLogEl.textContent = err.code === 'permission-denied'
+            ? "Can't load history — check the Firestore rules include the history collection."
+            : `Error loading history: ${err.message}`;
+        }
+      );
+    }
+
+    downloadLogBtn.addEventListener('click', () => {
+      if (latestHistoryLines.length === 0) return;
+      const blob = new Blob([latestHistoryLines.join('\n')], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${DATABASE_NAME}_history_log.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
 
     let listenerStarted = false;
     function startListListener() {
@@ -428,16 +557,22 @@
         if (!itemEl) return;
         const id = itemEl.dataset.id;
         const ref = doc(db, "items", id);
+        const itemName = itemEl.querySelector('.item-name').textContent;
+        const countEl = itemEl.querySelector('.count');
+        const current = Number(countEl.textContent);
         try {
           if (e.target.classList.contains('inc')) {
             await updateDoc(ref, { count: increment(1) });
+            logChange(itemName, current, current + 1);
           } else if (e.target.classList.contains('dec')) {
-            const countEl = itemEl.querySelector('.count');
-            const current = Number(countEl.textContent);
-            if (current > 0) await updateDoc(ref, { count: increment(-1) });
+            if (current > 0) {
+              await updateDoc(ref, { count: increment(-1) });
+              logChange(itemName, current, current - 1);
+            }
           } else if (e.target.classList.contains('remove-btn')) {
-            if (confirm(`Remove "${itemEl.querySelector('.item-name').textContent}" from the list?`)) {
+            if (confirm(`Remove "${itemName}" from the list?`)) {
               await deleteDoc(ref);
+              logChange(itemName, current, 0);
             }
           }
         } catch (err) {
@@ -452,6 +587,7 @@
         if (!name) return;
         try {
           await addDoc(itemsCol, { name, count });
+          logChange(name, 0, count);
           newName.value = '';
           newCount.value = '1';
           newName.focus();
@@ -459,6 +595,8 @@
           errorMsg.textContent = 'Could not add that item — check your connection and try again.';
         }
       });
+
+      startHistoryListener();
     }
 
     function render(items) {
