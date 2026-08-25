@@ -182,6 +182,31 @@ h1 {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.item-main {
+  flex: 1;
+  min-width: 0;
+}
+.item-meta {
+  font-size: 12px;
+  color: var(--paper-dim);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+/* ---------- Category groups (Components page) ---------- */
+.category-group { margin-bottom: 22px; }
+.category-group:last-child { margin-bottom: 0; }
+.category-heading {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
 .stepper {
   display: flex;
   align-items: center;
@@ -241,7 +266,9 @@ h1 {
   gap: 8px;
   flex-wrap: wrap;
 }
-.add-form input {
+.add-form input,
+.add-form select,
+.add-form textarea {
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -250,9 +277,20 @@ h1 {
   font-family: 'Inter', sans-serif;
   font-size: 14px;
 }
-.add-form input:focus { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
+.add-form input:focus,
+.add-form select:focus,
+.add-form textarea:focus { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
 #newName { flex: 1; min-width: 140px; }
 #newCount { width: 70px; font-family: 'IBM Plex Mono', monospace; }
+#newPartNumber { flex: 1; min-width: 160px; }
+#categorySelect, #newCategory { min-width: 160px; }
+.add-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 42px;
+  font-family: 'Inter', sans-serif;
+}
+.add-form .full-row { flex-basis: 100%; }
 .add-form button {
   background: var(--accent);
   border: none;

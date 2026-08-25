@@ -51,6 +51,10 @@
             <h2>All changes</h2>
             <button class="download-btn" id="downloadLogBtn" type="button" disabled>Download .txt</button>
           </div>
+          <p class="sub" style="margin:-4px 0 12px;font-size:12.5px;">
+            Format: date, time, user, list, item, prev qty, new qty
+            <span style="opacity:.75;">(Components entries add two more columns: category, part number)</span>
+          </p>
           <div class="history-log full" id="historyLog">Loading…</div>
         </div>
       </div>
@@ -59,7 +63,7 @@
 
   <script type="module">
     import {
-      db, DATABASE_NAME, formatHistoryLine, initAuthGate
+      db, formatHistoryLine, initAuthGate
     } from "./app-shared.js";
     import {
       collection, query, orderBy, limit, onSnapshot
@@ -90,9 +94,10 @@
             downloadLogBtn.disabled = true;
             return;
           }
-          latestHistoryLines = entries.map(en =>
-            formatHistoryLine(en.date, en.time, en.user, en.item, en.prevQty, en.newQty)
-          );
+          // Each entry already carries its own "database" (which list it
+          // belongs to) and, for Components, category/partNumber — pass the
+          // whole entry through so every list's history renders correctly.
+          latestHistoryLines = entries.map(en => formatHistoryLine(en));
           historyLogEl.textContent = latestHistoryLines.join('\n');
           downloadLogBtn.disabled = false;
         },
@@ -112,7 +117,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${DATABASE_NAME}_history_log.txt`;
+      a.download = `household_history_log.txt`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

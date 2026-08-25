@@ -12,28 +12,31 @@ import {
 // This is the ONLY place it needs to go — every page imports it from here.
 // ---------------------------------------------------------------
 export const firebaseConfig = {
-  apiKey: "AIzaSyCGxrfmHY-w_O3rbjBdh64P8HL0nZlYLEA",
-      authDomain: "household-stock-c9d78.firebaseapp.com",
-      projectId: "household-stock-c9d78",
-      storageBucket: "household-stock-c9d78.firebasestorage.app",
-      messagingSenderId: "829926014511",
-      appId: "1:829926014511:web:1a11af405e25a7555dd0da"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 
-// Identifies which list these history entries belong to — change this if
-// you ever reuse this app for a second, separate list.
+// "database name" tags each history line so multiple lists can share one
+// history collection and still be told apart. One constant per list.
 export const DATABASE_NAME = 'meal_prep';
+export const COMPONENTS_DATABASE_NAME = 'components';
 
 // Pages shown in the sidebar. Add a new { href, label, icon } entry here
 // whenever you add a new page — every page's sidebar updates automatically.
 export const PAGES = [
   { href: 'index.html', label: 'Stock List', icon: 'list' },
+  { href: 'components.html', label: 'Components', icon: 'chip' },
   { href: 'history.html', label: 'History Log', icon: 'clock' }
 ];
 
 const ICONS = {
   list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
-  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>'
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>',
+  chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/><line x1="9" y1="2" x2="9" y2="6"/><line x1="15" y1="2" x2="15" y2="6"/><line x1="9" y1="18" x2="9" y2="22"/><line x1="15" y1="18" x2="15" y2="22"/><line x1="2" y1="9" x2="6" y2="9"/><line x1="2" y1="15" x2="6" y2="15"/><line x1="18" y1="9" x2="22" y2="9"/><line x1="18" y1="15" x2="22" y2="15"/></svg>'
 };
 
 export let db, auth;
@@ -53,27 +56,49 @@ export function escapeHtml(str) {
   return div.innerHTML;
 }
 
-export function formatHistoryLine(dateStr, timeStr, user, item, prevQty, newQty) {
-  // date, time, user, database name, item name, prev quantity, new quantity
-  return `${dateStr}, ${timeStr}, ${user}, ${DATABASE_NAME}, ${item}, ${prevQty}, ${newQty}`;
+// Builds one history log line from a Firestore history entry (as returned
+// by onSnapshot, e.g. { date, time, user, database, item, prevQty, newQty,
+// category?, partNumber? }). Base format (unchanged, used by the Stock List):
+//   date, time, user, database name, item name, prev quantity, new quantity
+// When an entry carries a category and/or part number (currently just the
+// Components list), two extra trailing columns are appended:
+//   ..., new quantity, category, part number
+// Older/plain entries have no category/partNumber fields, so they render
+// exactly as before — this is backwards compatible with existing logs.
+export function formatHistoryLine(entry) {
+  const { date, time, user, database, item, prevQty, newQty, category, partNumber } = entry;
+  let line = `${date}, ${time}, ${user}, ${database}, ${item}, ${prevQty}, ${newQty}`;
+  if (category !== undefined || partNumber !== undefined) {
+    line += `, ${category || ''}, ${partNumber || ''}`;
+  }
+  return line;
 }
 
-export async function logChange(itemName, prevQty, newQty) {
+// Writes one entry to the shared "history" collection. `extra` lets callers
+// tag which list this belongs to (defaults to the Stock List) and, for the
+// Components list, attach the item's category and part/model number so
+// they show up as extra columns in the log. Notes are deliberately left out
+// of history lines — free text with commas/newlines would break the
+// line-per-entry .txt format; notes only live on the item itself.
+export async function logChange(itemName, prevQty, newQty, extra = {}) {
   if (!db) return;
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-GB'); // dd/mm/yyyy
   const timeStr = now.toLocaleTimeString('en-GB', { hour12: false }); // HH:MM:SS
+  const entry = {
+    date: dateStr,
+    time: timeStr,
+    user: state.userEmail || 'unknown',
+    database: extra.database || DATABASE_NAME,
+    item: itemName,
+    prevQty,
+    newQty,
+    sortKey: now.getTime()
+  };
+  if (extra.category !== undefined) entry.category = extra.category;
+  if (extra.partNumber !== undefined) entry.partNumber = extra.partNumber;
   try {
-    await addDoc(collection(db, "history"), {
-      date: dateStr,
-      time: timeStr,
-      user: state.userEmail || 'unknown',
-      database: DATABASE_NAME,
-      item: itemName,
-      prevQty,
-      newQty,
-      sortKey: now.getTime()
-    });
+    await addDoc(collection(db, "history"), entry);
   } catch (err) {
     console.error('Could not write history entry:', err);
   }
