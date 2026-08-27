@@ -22,13 +22,12 @@ import {
 // If you're not using the Lights page, you can leave this as-is.
 // ---------------------------------------------------------------
 export const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
-  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.YOUR_REGION.firebasedatabase.app"
+  apiKey: "AIzaSyCGxrfmHY-w_O3rbjBdh64P8HL0nZlYLEA",
+  authDomain: "household-stock-c9d78.firebaseapp.com",
+  projectId: "household-stock-c9d78",
+  storageBucket: "household-stock-c9d78.firebasestorage.app",
+  messagingSenderId: "829926014511",
+  appId: "1:829926014511:web:1a11af405e25a7555dd0da"
 };
 
 // "database name" tags each history line so multiple lists can share one
