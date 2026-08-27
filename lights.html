@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lights — Household Stock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Sign-in screen -->
+  <div class="auth-card" id="authCard">
+    <div class="eyebrow" style="text-align:left;margin-bottom:14px;">Household · Live list</div>
+    <h2 id="authTitle">Sign in to view the list</h2>
+    <p id="authSub">Enter the email and password you were given. Only invited household accounts can access this list.</p>
+    <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username">
+    <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="authBtn" type="button">Sign in</button>
+    <div class="error-msg" id="authError"></div>
+    <div class="auth-note"><a href="#" id="forgotPasswordLink" style="color:var(--paper-dim);">Forgot your password?</a></div>
+  </div>
+
+  <!-- Main app shell (shown once signed in) -->
+  <div class="app-shell hidden" id="appWrap">
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand">Household</div>
+      <div id="sidebarNav"></div>
+    </nav>
+
+    <div class="page-content">
+      <div class="wrap">
+        <header>
+          <div>
+            <div class="eyebrow">Household · Live list</div>
+            <h1>Lights</h1>
+            <p class="sub" id="signedInAs"></p>
+          </div>
+          <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
+        </header>
+
+        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+
+        <div class="lights-grid" id="lightsGrid">Loading…</div>
+        <div class="error-msg" id="errorMsg"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      auth, rtdb, escapeHtml, initAuthGate
+    } from "./app-shared.js";
+    import {
+      ref, onValue, update, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    const gridEl = document.getElementById('lightsGrid');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const errorMsg = document.getElementById('errorMsg');
+
+    let listenerStarted = false;
+
+    function startLightsListener() {
+      if (listenerStarted || !rtdb) {
+        if (!rtdb) errorMsg.textContent = 'Realtime Database isn\'t configured — see README_LIGHTS.md.';
+        return;
+      }
+      listenerStarted = true;
+
+      const lightsRef = ref(rtdb, 'lights');
+      onValue(lightsRef,
+        (snapshot) => {
+          statusDot.classList.remove('offline');
+          statusText.textContent = 'Live — connected';
+          render(snapshot.val() || {});
+        },
+        (err) => {
+          statusDot.classList.add('offline');
+          statusText.textContent = 'Connection error';
+          gridEl.innerHTML = '';
+          errorMsg.textContent = err.code === 'PERMISSION_DENIED'
+            ? "Your account isn't on the lights allowlist yet — ask whoever set this up to add it."
+            : `Error loading lights: ${err.message}`;
+        }
+      );
+
+      // Event delegation: one set of listeners for every light card,
+      // including ones that arrive later over the live sync.
+      gridEl.addEventListener('change', (e) => {
+        const card = e.target.closest('.light-card');
+        if (!card) return;
+        const hueId = card.dataset.id;
+
+        if (e.target.classList.contains('light-toggle')) {
+          writeDesired(hueId, { on: e.target.checked });
+        } else if (e.target.classList.contains('light-color')) {
+          const { r, g, b } = hexToRgb(e.target.value);
+          writeDesired(hueId, { r, g, b });
+        } else if (e.target.classList.contains('light-brightness')) {
+          writeDesired(hueId, { brightness: Number(e.target.value) });
+        }
+      });
+
+      // Live-update the "%" label while dragging, without writing on every pixel.
+      gridEl.addEventListener('input', (e) => {
+        if (!e.target.classList.contains('light-brightness')) return;
+        const card = e.target.closest('.light-card');
+        const label = card?.querySelector('.brightness-value');
+        if (label) label.textContent = `${e.target.value}%`;
+      });
+    }
+
+    function writeDesired(hueId, patch) {
+      errorMsg.textContent = '';
+      const desiredRef = ref(rtdb, `lights/${hueId}/desired`);
+      update(desiredRef, {
+        ...patch,
+        updatedBy: auth?.currentUser?.email || 'unknown',
+        updatedAt: serverTimestamp()
+      }).catch(() => {
+        errorMsg.textContent = 'Could not save that change — check your connection and try again.';
+      });
+    }
+
+    function render(lightsObj) {
+      const ids = Object.keys(lightsObj);
+      if (ids.length === 0) {
+        gridEl.innerHTML = `<div class="empty">No lights found yet — make sure the ESP32 controller is powered on and connected.</div>`;
+        return;
+      }
+
+      ids.sort((a, b) => {
+        const nameA = lightsObj[a]?.meta?.name || a;
+        const nameB = lightsObj[b]?.meta?.name || b;
+        return nameA.localeCompare(nameB);
+      });
+
+      gridEl.innerHTML = ids.map(id => {
+        const light = lightsObj[id] || {};
+        const meta = light.meta || {};
+        const desired = light.desired || {};
+        const reported = light.reported || {};
+
+        const name = meta.name || `Light ${id}`;
+        const on = desired.on ?? false;
+        const brightness = desired.brightness ?? 100;
+        const r = desired.r ?? 255;
+        const g = desired.g ?? 255;
+        const b = desired.b ?? 255;
+        const hex = rgbToHex(r, g, b);
+        const statusLine = reportedStatusLine(desired, reported);
+
+        return `
+          <div class="light-card" data-id="${id}">
+            <div class="light-card-top">
+              <div class="light-name">${escapeHtml(name)}</div>
+              <label class="switch">
+                <input type="checkbox" class="light-toggle" ${on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
+                <span class="slider-track"></span>
+              </label>
+            </div>
+            <div class="light-controls ${on ? '' : 'dimmed'}">
+              <div class="control-row">
+                <span class="control-label">Colour</span>
+                <input type="color" class="light-color" value="${hex}" aria-label="Colour for ${escapeHtml(name)}">
+              </div>
+              <div class="control-row">
+                <span class="control-label">Brightness</span>
+                <input type="range" class="light-brightness" min="1" max="100" value="${brightness}" aria-label="Brightness for ${escapeHtml(name)}">
+                <span class="brightness-value">${brightness}%</span>
+              </div>
+            </div>
+            <div class="light-status">${escapeHtml(statusLine)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function reportedStatusLine(desired, reported) {
+      if (!reported || reported.appliedAt === undefined) return 'Waiting for device…';
+      const matches = reported.on === (desired.on ?? false)
+        && reported.brightness === (desired.brightness ?? 100)
+        && reported.r === (desired.r ?? 255)
+        && reported.g === (desired.g ?? 255)
+        && reported.b === (desired.b ?? 255);
+      return matches ? 'Applied' : 'Applying…';
+    }
+
+    function rgbToHex(r, g, b) {
+      const c = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+      return `#${c(r)}${c(g)}${c(b)}`;
+    }
+
+    function hexToRgb(hex) {
+      const clean = hex.replace('#', '');
+      return {
+        r: parseInt(clean.substring(0, 2), 16),
+        g: parseInt(clean.substring(2, 4), 16),
+        b: parseInt(clean.substring(4, 6), 16)
+      };
+    }
+
+    initAuthGate({ activePage: 'lights.html', onSignedIn: startLightsListener });
+  </script>
+</body>
+</html>

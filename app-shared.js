@@ -6,18 +6,29 @@ import {
 import {
   getFirestore, collection, addDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getDatabase
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // ---------------------------------------------------------------
 // PASTE YOUR OWN FIREBASE CONFIG HERE (see README.md, Step 1-3)
 // This is the ONLY place it needs to go — every page imports it from here.
+//
+// databaseURL is new: it's needed for the Lights page (Firebase Realtime
+// Database). After enabling Realtime Database in the Firebase console
+// (Build > Realtime Database > Create Database), the console shows this
+// URL at the top of the Data tab, e.g.
+//   "https://your-project-default-rtdb.europe-west1.firebasedatabase.app"
+// If you're not using the Lights page, you can leave this as-is.
 // ---------------------------------------------------------------
 export const firebaseConfig = {
-  apiKey: "AIzaSyCGxrfmHY-w_O3rbjBdh64P8HL0nZlYLEA",
-  authDomain: "household-stock-c9d78.firebaseapp.com",
-  projectId: "household-stock-c9d78",
-  storageBucket: "household-stock-c9d78.firebasestorage.app",
-  messagingSenderId: "829926014511",
-  appId: "1:829926014511:web:1a11af405e25a7555dd0da"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
+  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.YOUR_REGION.firebasedatabase.app"
 };
 
 // "database name" tags each history line so multiple lists can share one
@@ -30,20 +41,23 @@ export const COMPONENTS_DATABASE_NAME = 'components';
 export const PAGES = [
   { href: 'index.html', label: 'Stock List', icon: 'list' },
   { href: 'components.html', label: 'Components', icon: 'chip' },
+  { href: 'lights.html', label: 'Lights', icon: 'bulb' },
   { href: 'history.html', label: 'History Log', icon: 'clock' }
 ];
 
 const ICONS = {
   list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>',
-  chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/><line x1="9" y1="2" x2="9" y2="6"/><line x1="15" y1="2" x2="15" y2="6"/><line x1="9" y1="18" x2="9" y2="22"/><line x1="15" y1="18" x2="15" y2="22"/><line x1="2" y1="9" x2="6" y2="9"/><line x1="2" y1="15" x2="6" y2="15"/><line x1="18" y1="9" x2="22" y2="9"/><line x1="18" y1="15" x2="22" y2="15"/></svg>'
+  chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/><line x1="9" y1="2" x2="9" y2="6"/><line x1="15" y1="2" x2="15" y2="6"/><line x1="9" y1="18" x2="9" y2="22"/><line x1="15" y1="18" x2="15" y2="22"/><line x1="2" y1="9" x2="6" y2="9"/><line x1="2" y1="15" x2="6" y2="15"/><line x1="18" y1="9" x2="22" y2="9"/><line x1="18" y1="15" x2="22" y2="15"/></svg>',
+  bulb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2.3h6c0-1.1.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>'
 };
 
-export let db, auth;
+export let db, auth, rtdb;
 try {
   const app = initializeApp(firebaseConfig);
   db = getFirestore(app);
   auth = getAuth(app);
+  rtdb = getDatabase(app); // used by the Lights page only
 } catch (err) {
   console.error('Firebase init failed:', err);
 }
