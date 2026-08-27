@@ -27,7 +27,8 @@ export const firebaseConfig = {
   projectId: "household-stock-c9d78",
   storageBucket: "household-stock-c9d78.firebasestorage.app",
   messagingSenderId: "829926014511",
-  appId: "1:829926014511:web:1a11af405e25a7555dd0da"
+  appId: "1:829926014511:web:1a11af405e25a7555dd0da",
+  databaseURL: "https://household-stock-c9d78-default-rtdb.europe-west1.firebasedatabase.app"
 };
 
 // "database name" tags each history line so multiple lists can share one
