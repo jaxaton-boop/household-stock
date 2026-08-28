@@ -156,6 +156,7 @@
         const b = desired.b ?? 255;
         const hex = rgbToHex(r, g, b);
         const statusLine = reportedStatusLine(desired, reported);
+        const statusIsError = reported.commError === true;
 
         return `
           <div class="light-card" data-id="${id}">
@@ -177,7 +178,7 @@
                 <span class="brightness-value">${brightness}%</span>
               </div>
             </div>
-            <div class="light-status">${escapeHtml(statusLine)}</div>
+            <div class="light-status ${statusIsError ? 'error' : ''}">${escapeHtml(statusLine)}</div>
           </div>
         `;
       }).join('');
@@ -185,6 +186,7 @@
 
     function reportedStatusLine(desired, reported) {
       if (!reported || reported.appliedAt === undefined) return 'Waiting for device…';
+      if (reported.commError) return "Bridge can't reach this light — check it's powered on and in range";
       const matches = reported.on === (desired.on ?? false)
         && reported.brightness === (desired.brightness ?? 100)
         && reported.r === (desired.r ?? 255)

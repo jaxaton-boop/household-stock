@@ -568,3 +568,6 @@ input[type="range"].light-brightness::-moz-range-thumb {
   font-size: 11px;
   color: var(--paper-dim);
 }
+.light-status.error {
+  color: var(--danger-bright);
+}
