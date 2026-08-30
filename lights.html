@@ -46,17 +46,17 @@
 
         <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
 
-        <!-- Tabs: individual lights vs room/group control -->
+        <!-- Tabs: room/group control is primary; individual lights is secondary -->
         <div class="tabbar" id="lightsTabbar">
-          <button type="button" class="tab-btn active" data-tab="lights">Lights</button>
-          <button type="button" class="tab-btn" data-tab="groups">Groups</button>
+          <button type="button" class="tab-btn active" data-tab="groups">Groups</button>
+          <button type="button" class="tab-btn" data-tab="lights">Lights</button>
         </div>
 
-        <div class="tab-panel" id="tabPanelLights">
+        <div class="tab-panel hidden" id="tabPanelLights">
           <div class="lights-grid" id="lightsGrid">Loading…</div>
         </div>
 
-        <div class="tab-panel hidden" id="tabPanelGroups">
+        <div class="tab-panel" id="tabPanelGroups">
           <div class="groups-toolbar">
             <button type="button" class="edit-layout-btn" id="editLayoutBtn">Edit layout</button>
           </div>
@@ -66,6 +66,8 @@
         <div class="error-msg" id="errorMsg"></div>
       </div>
     </div>
+
+    <div class="toast" id="groupToast"></div>
   </div>
 
   <script type="module">
@@ -79,6 +81,19 @@
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
     const errorMsg = document.getElementById('errorMsg');
+
+    // ============================================================
+    // Toast: a short-lived confirmation banner, currently used to
+    // confirm a group's change has reached every contactable light.
+    // ============================================================
+    const toastEl = document.getElementById('groupToast');
+    let toastTimeout = null;
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add('visible');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toastEl.classList.remove('visible'), 5000);
+    }
 
     // ============================================================
     // Tabs
@@ -115,6 +130,7 @@
           lightsData = snapshot.val() || {};
           render(lightsData);
           renderGroups(); // keep "Assign lights" names/availability in sync
+          checkPendingGroupApplications();
         },
         (err) => {
           statusDot.classList.add('offline');
@@ -248,6 +264,18 @@
       };
     }
 
+    // Picks a readable text/label colour pair for a given background
+    // colour, using perceived brightness (ITU-R BT.601) rather than a
+    // straight average - the eye reads green as brighter than blue at
+    // the same numeric value, so this avoids picking dark text on a
+    // background that's actually a deep, dark blue.
+    function pickTextColors(r, g, b) {
+      const perceivedBrightness = (r * 299 + g * 587 + b * 114) / 1000;
+      return perceivedBrightness > 150
+        ? { paper: '#1a1e15', paperDim: '#3f453a' } // dark text on a light/bright colour
+        : { paper: '#f4f0e4', paperDim: '#c9c2ae' }; // light text on a dark/deep colour
+    }
+
     // ============================================================
     // Groups (rooms/areas made of one or more lights)
     //
@@ -269,6 +297,8 @@
     let editMode = false;
     let addingGroup = false;
     let openAssignMenuId = null; // which group's "Assign lights" checklist is open, if any
+    let pendingGroupApplications = new Map(); // groupId -> { target, memberIds, startedAt }
+    const GROUP_APPLY_GIVE_UP_MS = 20000; // stop waiting silently if nothing ever reports back
 
     function startGroupsListener() {
       if (groupsListenerStarted || !rtdb) return;
@@ -298,6 +328,9 @@
 
     function writeGroupDesired(groupId, patch) {
       errorMsg.textContent = '';
+      const currentDesired = groupsData[groupId]?.desired || {};
+      const target = { ...currentDesired, ...patch }; // the full state we expect every member light to reach
+
       // Record the group's own "last set" values, for the group card's display.
       update(ref(rtdb, `groups/${groupId}/desired`), {
         ...patch,
@@ -312,6 +345,60 @@
       // tab uses, so nothing new needs to happen on the ESP32 side.
       const memberIds = Object.keys(groupsData[groupId]?.lightIds || {});
       memberIds.forEach(lightId => writeDesired(lightId, patch));
+
+      // Watch for confirmation that this change actually reached every
+      // contactable light (see checkPendingGroupApplications, called
+      // whenever fresh /lights data - including "reported" - arrives).
+      // A later change to the same group overwrites this entry, so only
+      // the final settled state gets a toast, not every intermediate one.
+      if (memberIds.length > 0) {
+        pendingGroupApplications.set(groupId, { target, memberIds, startedAt: Date.now() });
+      }
+    }
+
+    // Fires the "applied" toast once every member light of a pending
+    // group change has either matched the target state or reported it
+    // can't be reached (commError) - a light in error is excluded from
+    // the count rather than blocking the toast forever, since "applied
+    // to all contactable lights" is the bar, not "every light that
+    // exists". Lights that haven't reported anything yet keep the group
+    // pending until they do (or until GROUP_APPLY_GIVE_UP_MS passes).
+    function checkPendingGroupApplications() {
+      const now = Date.now();
+      for (const [groupId, pending] of pendingGroupApplications.entries()) {
+        if (now - pending.startedAt > GROUP_APPLY_GIVE_UP_MS) {
+          pendingGroupApplications.delete(groupId); // give up quietly - e.g. the whole unit is offline
+          continue;
+        }
+
+        const { target, memberIds } = pending;
+        let allResolved = true;
+        let matchedCount = 0;
+        let errorCount = 0;
+
+        for (const lightId of memberIds) {
+          const reported = lightsData[lightId]?.reported;
+          if (!reported || reported.appliedAt === undefined) { allResolved = false; continue; }
+          if (reported.commError) { errorCount++; continue; }
+          const matches = reported.on === (target.on ?? false)
+            && reported.brightness === (target.brightness ?? 100)
+            && reported.r === (target.r ?? 255)
+            && reported.g === (target.g ?? 255)
+            && reported.b === (target.b ?? 255);
+          if (matches) matchedCount++;
+          else allResolved = false;
+        }
+
+        if (!allResolved) continue;
+
+        pendingGroupApplications.delete(groupId);
+        const groupName = groupsData[groupId]?.name || 'Group';
+        const total = memberIds.length;
+        const message = errorCount === 0
+          ? `${groupName}: applied to all ${matchedCount} light${matchedCount === 1 ? '' : 's'}`
+          : `${groupName}: applied to ${matchedCount} of ${total} light${total === 1 ? '' : 's'} (${errorCount} unreachable)`;
+        showToast(message);
+      }
     }
 
     function renderGroups() {
@@ -357,8 +444,22 @@
         </div>
       ` : '';
 
+      // Shade the card with the group's own colour when it's on, so the
+      // box gives an at-a-glance sense of what the room currently looks
+      // like. --paper/--paper-dim are overridden right here rather than
+      // via a new CSS class, so every descendant that already reads
+      // those variables (name, labels, meta text) picks up a readable
+      // colour automatically without needing per-element rules.
+      let cardStyle = '';
+      let cardClass = 'light-card group-card';
+      if (on) {
+        const { paper, paperDim } = pickTextColors(r, g, b);
+        cardStyle = ` style="background-color: ${hex}; --paper: ${paper}; --paper-dim: ${paperDim};"`;
+        cardClass += ' group-card-colored';
+      }
+
       return `
-        <div class="light-card group-card" data-id="${id}">
+        <div class="${cardClass}" data-id="${id}"${cardStyle}>
           <div class="light-card-top">
             <div class="light-name">${escapeHtml(name)}</div>
             <label class="switch">

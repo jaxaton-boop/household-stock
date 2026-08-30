@@ -696,3 +696,34 @@ input[type="range"].light-brightness::-moz-range-thumb {
   margin: 10px 0 0;
 }
 .add-group-input:focus { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
+
+/* A group card shaded with its own colour drops the default left accent
+   bar - a fixed green sliver reads as a mistake against an arbitrary
+   background colour rather than as this site's usual card signature. */
+.group-card-colored::before { display: none; }
+
+/* ---------- Toast (short confirmation banner) ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) translateY(12px);
+  background: #1a1e15;
+  color: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 11px 18px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 50;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+}
+.toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
