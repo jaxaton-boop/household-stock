@@ -46,7 +46,23 @@
 
         <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
 
-        <div class="lights-grid" id="lightsGrid">Loading…</div>
+        <!-- Tabs: individual lights vs room/group control -->
+        <div class="tabbar" id="lightsTabbar">
+          <button type="button" class="tab-btn active" data-tab="lights">Lights</button>
+          <button type="button" class="tab-btn" data-tab="groups">Groups</button>
+        </div>
+
+        <div class="tab-panel" id="tabPanelLights">
+          <div class="lights-grid" id="lightsGrid">Loading…</div>
+        </div>
+
+        <div class="tab-panel hidden" id="tabPanelGroups">
+          <div class="groups-toolbar">
+            <button type="button" class="edit-layout-btn" id="editLayoutBtn">Edit layout</button>
+          </div>
+          <div class="lights-grid" id="groupsGrid">Loading…</div>
+        </div>
+
         <div class="error-msg" id="errorMsg"></div>
       </div>
     </div>
@@ -57,29 +73,48 @@
       auth, rtdb, escapeHtml, initAuthGate
     } from "./app-shared.js";
     import {
-      ref, onValue, update, serverTimestamp
+      ref, onValue, update, remove, push, set, serverTimestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-    const gridEl = document.getElementById('lightsGrid');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
     const errorMsg = document.getElementById('errorMsg');
 
-    let listenerStarted = false;
+    // ============================================================
+    // Tabs
+    // ============================================================
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        document.getElementById('tabPanelLights').classList.toggle('hidden', tab !== 'lights');
+        document.getElementById('tabPanelGroups').classList.toggle('hidden', tab !== 'groups');
+      });
+    });
+
+    // ============================================================
+    // Individual lights (unchanged behaviour from before Groups existed)
+    // ============================================================
+    const gridEl = document.getElementById('lightsGrid');
+    let lightsData = {}; // kept around so the Groups tab can show light names in "Assign lights"
+    let lightsListenerStarted = false;
 
     function startLightsListener() {
-      if (listenerStarted || !rtdb) {
+      if (lightsListenerStarted || !rtdb) {
         if (!rtdb) errorMsg.textContent = 'Realtime Database isn\'t configured — see README_LIGHTS.md.';
         return;
       }
-      listenerStarted = true;
+      lightsListenerStarted = true;
 
       const lightsRef = ref(rtdb, 'lights');
       onValue(lightsRef,
         (snapshot) => {
           statusDot.classList.remove('offline');
           statusText.textContent = 'Live — connected';
-          render(snapshot.val() || {});
+          lightsData = snapshot.val() || {};
+          render(lightsData);
+          renderGroups(); // keep "Assign lights" names/availability in sync
         },
         (err) => {
           statusDot.classList.add('offline');
@@ -117,6 +152,10 @@
       });
     }
 
+    // Shared by individual lights AND groups: groups fan this same write
+    // out to each of their assigned lights (see writeGroupDesired below),
+    // so a single light's own poll -> apply -> report loop on the ESP32
+    // handles a group change exactly like a direct one.
     function writeDesired(hueId, patch) {
       errorMsg.textContent = '';
       const desiredRef = ref(rtdb, `lights/${hueId}/desired`);
@@ -209,7 +248,274 @@
       };
     }
 
-    initAuthGate({ activePage: 'lights.html', onSignedIn: startLightsListener });
+    // ============================================================
+    // Groups (rooms/areas made of one or more lights)
+    //
+    // A group is a website-only concept - it has no equivalent on the
+    // ESP32. Changing a group's on/off, brightness, or colour just fans
+    // that same write out to each assigned light's own
+    // /lights/{id}/desired node (via writeDesired, above), so the
+    // ESP32's existing poll -> apply -> report loop applies it exactly
+    // as if each light had been changed individually. The group also
+    // keeps its own "last set" values under /groups/{id}/desired purely
+    // so its own card has something to display - it does not attempt to
+    // read back or average what its member bulbs are actually reporting.
+    // ============================================================
+    const groupsGrid = document.getElementById('groupsGrid');
+    const editLayoutBtn = document.getElementById('editLayoutBtn');
+
+    let groupsData = {};
+    let groupsListenerStarted = false;
+    let editMode = false;
+    let addingGroup = false;
+    let openAssignMenuId = null; // which group's "Assign lights" checklist is open, if any
+
+    function startGroupsListener() {
+      if (groupsListenerStarted || !rtdb) return;
+      groupsListenerStarted = true;
+
+      const groupsRef = ref(rtdb, 'groups');
+      onValue(groupsRef,
+        (snapshot) => {
+          groupsData = snapshot.val() || {};
+          renderGroups();
+        },
+        (err) => {
+          errorMsg.textContent = err.code === 'PERMISSION_DENIED'
+            ? "Your account isn't on the lights allowlist yet — ask whoever set this up to add it."
+            : `Error loading groups: ${err.message}`;
+        }
+      );
+    }
+
+    editLayoutBtn.addEventListener('click', () => {
+      editMode = !editMode;
+      editLayoutBtn.textContent = editMode ? 'Done editing' : 'Edit layout';
+      editLayoutBtn.classList.toggle('active', editMode);
+      if (!editMode) { addingGroup = false; openAssignMenuId = null; }
+      renderGroups();
+    });
+
+    function writeGroupDesired(groupId, patch) {
+      errorMsg.textContent = '';
+      // Record the group's own "last set" values, for the group card's display.
+      update(ref(rtdb, `groups/${groupId}/desired`), {
+        ...patch,
+        updatedBy: auth?.currentUser?.email || 'unknown',
+        updatedAt: serverTimestamp()
+      }).catch(() => {
+        errorMsg.textContent = 'Could not save that change — check your connection and try again.';
+      });
+
+      // Fan the same change out to every light currently assigned to
+      // this group - reusing the exact same per-light write the Lights
+      // tab uses, so nothing new needs to happen on the ESP32 side.
+      const memberIds = Object.keys(groupsData[groupId]?.lightIds || {});
+      memberIds.forEach(lightId => writeDesired(lightId, patch));
+    }
+
+    function renderGroups() {
+      const ids = Object.keys(groupsData);
+      ids.sort((a, b) => (groupsData[a]?.name || '').localeCompare(groupsData[b]?.name || ''));
+
+      let html = '';
+      if (ids.length === 0 && !editMode) {
+        html = `<div class="empty">No groups yet — tap "Edit layout" to add your first one.</div>`;
+      } else {
+        html = ids.map(id => groupCardHtml(id, groupsData[id] || {})).join('');
+      }
+      if (editMode) {
+        html += addGroupTileHtml();
+      }
+      groupsGrid.innerHTML = html;
+
+      if (addingGroup) {
+        document.getElementById('newGroupNameInput')?.focus();
+      }
+    }
+
+    function groupCardHtml(id, group) {
+      const name = group.name || 'Unnamed group';
+      const desired = group.desired || {};
+      const on = desired.on ?? false;
+      const brightness = desired.brightness ?? 100;
+      const r = desired.r ?? 255, g = desired.g ?? 255, b = desired.b ?? 255;
+      const hex = rgbToHex(r, g, b);
+      const memberIds = Object.keys(group.lightIds || {});
+      const metaText = memberIds.length === 0
+        ? 'No lights assigned yet'
+        : `${memberIds.length} light${memberIds.length === 1 ? '' : 's'} assigned`;
+      const assignOpen = openAssignMenuId === id;
+
+      const editRow = editMode ? `
+        <div class="group-edit-row">
+          <button type="button" class="assign-lights-btn">Assign lights</button>
+          <button type="button" class="delete-group-btn">Delete group</button>
+        </div>
+        <div class="assign-lights-menu ${assignOpen ? '' : 'hidden'}">
+          ${assignLightsChecklistHtml(memberIds)}
+        </div>
+      ` : '';
+
+      return `
+        <div class="light-card group-card" data-id="${id}">
+          <div class="light-card-top">
+            <div class="light-name">${escapeHtml(name)}</div>
+            <label class="switch">
+              <input type="checkbox" class="light-toggle group-toggle" ${on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
+              <span class="slider-track"></span>
+            </label>
+          </div>
+          <div class="light-controls ${on ? '' : 'dimmed'}">
+            <div class="control-row">
+              <span class="control-label">Colour</span>
+              <input type="color" class="light-color group-color" value="${hex}" aria-label="Colour for ${escapeHtml(name)}">
+            </div>
+            <div class="control-row">
+              <span class="control-label">Brightness</span>
+              <input type="range" class="light-brightness group-brightness" min="1" max="100" value="${brightness}" aria-label="Brightness for ${escapeHtml(name)}">
+              <span class="brightness-value">${brightness}%</span>
+            </div>
+          </div>
+          <div class="group-meta">${escapeHtml(metaText)}</div>
+          ${editRow}
+        </div>
+      `;
+    }
+
+    function assignLightsChecklistHtml(memberIds) {
+      const lightIds = Object.keys(lightsData);
+      if (lightIds.length === 0) {
+        return `<div class="assign-empty">No lights registered yet — make sure the ESP32 controller is powered on.</div>`;
+      }
+      lightIds.sort((a, b) => (lightsData[a]?.meta?.name || a).localeCompare(lightsData[b]?.meta?.name || b));
+      return lightIds.map(lid => {
+        const name = lightsData[lid]?.meta?.name || `Light ${lid}`;
+        const checked = memberIds.includes(lid);
+        return `
+          <label class="assign-lights-row">
+            <input type="checkbox" class="assign-light-checkbox" data-light-id="${lid}" ${checked ? 'checked' : ''}>
+            <span>${escapeHtml(name)}</span>
+          </label>
+        `;
+      }).join('');
+    }
+
+    function addGroupTileHtml() {
+      if (addingGroup) {
+        return `
+          <div class="light-card group-card add-group-card">
+            <div class="light-name">New group</div>
+            <input type="text" id="newGroupNameInput" class="add-group-input" placeholder="Room or group name" maxlength="40">
+            <div class="group-edit-row">
+              <button type="button" id="createGroupBtn">Create</button>
+              <button type="button" id="cancelGroupBtn">Cancel</button>
+            </div>
+          </div>
+        `;
+      }
+      return `<button type="button" class="add-group-tile" id="addGroupTile">+ Add group</button>`;
+    }
+
+    async function createGroup() {
+      const input = document.getElementById('newGroupNameInput');
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      try {
+        const newRef = push(ref(rtdb, 'groups'));
+        await set(newRef, {
+          name,
+          desired: { on: false, brightness: 100, r: 255, g: 255, b: 255 },
+          createdAt: serverTimestamp()
+        });
+        addingGroup = false;
+        renderGroups();
+      } catch (err) {
+        errorMsg.textContent = 'Could not create that group — check your connection and try again.';
+      }
+    }
+
+    groupsGrid.addEventListener('click', async (e) => {
+      if (e.target.closest('#addGroupTile')) {
+        addingGroup = true;
+        renderGroups();
+        return;
+      }
+      if (e.target.closest('#createGroupBtn')) {
+        createGroup();
+        return;
+      }
+      if (e.target.closest('#cancelGroupBtn')) {
+        addingGroup = false;
+        renderGroups();
+        return;
+      }
+
+      const card = e.target.closest('.group-card');
+      if (!card) return;
+      const groupId = card.dataset.id;
+
+      if (e.target.classList.contains('delete-group-btn')) {
+        const name = groupsData[groupId]?.name || 'this group';
+        if (confirm(`Delete "${name}"? This only removes the group — its lights aren't affected.`)) {
+          try {
+            await remove(ref(rtdb, `groups/${groupId}`));
+            if (openAssignMenuId === groupId) openAssignMenuId = null;
+          } catch (err) {
+            errorMsg.textContent = 'Could not delete that group — check your connection and try again.';
+          }
+        }
+        return;
+      }
+
+      if (e.target.classList.contains('assign-lights-btn')) {
+        openAssignMenuId = (openAssignMenuId === groupId) ? null : groupId;
+        renderGroups();
+        return;
+      }
+    });
+
+    groupsGrid.addEventListener('change', (e) => {
+      const card = e.target.closest('.group-card');
+      if (!card) return;
+      const groupId = card.dataset.id;
+
+      if (e.target.classList.contains('group-toggle')) {
+        writeGroupDesired(groupId, { on: e.target.checked });
+      } else if (e.target.classList.contains('group-color')) {
+        const { r, g, b } = hexToRgb(e.target.value);
+        writeGroupDesired(groupId, { r, g, b });
+      } else if (e.target.classList.contains('group-brightness')) {
+        writeGroupDesired(groupId, { brightness: Number(e.target.value) });
+      } else if (e.target.classList.contains('assign-light-checkbox')) {
+        const lightId = e.target.dataset.lightId;
+        const writeFn = e.target.checked
+          ? update(ref(rtdb, `groups/${groupId}/lightIds`), { [lightId]: true })
+          : remove(ref(rtdb, `groups/${groupId}/lightIds/${lightId}`));
+        writeFn.catch(() => {
+          errorMsg.textContent = 'Could not update that group\'s lights — check your connection and try again.';
+        });
+      }
+    });
+
+    // Live-update the "%" label while dragging a group's brightness slider.
+    groupsGrid.addEventListener('input', (e) => {
+      if (!e.target.classList.contains('group-brightness')) return;
+      const card = e.target.closest('.group-card');
+      const label = card?.querySelector('.brightness-value');
+      if (label) label.textContent = `${e.target.value}%`;
+    });
+
+    // ============================================================
+    // Auth gate: start both listeners once signed in
+    // ============================================================
+    initAuthGate({
+      activePage: 'lights.html',
+      onSignedIn: () => {
+        startLightsListener();
+        startGroupsListener();
+      }
+    });
   </script>
 </body>
 </html>

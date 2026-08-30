@@ -571,3 +571,128 @@ input[type="range"].light-brightness::-moz-range-thumb {
 .light-status.error {
   color: var(--danger-bright);
 }
+
+/* ---------- Tabs (Lights page: Lights / Groups) ---------- */
+.tabbar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin: 14px 0 22px;
+}
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--paper-dim);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 4px 10px;
+  margin-right: 20px;
+  cursor: pointer;
+}
+.tab-btn:hover { color: var(--paper); }
+.tab-btn.active {
+  color: var(--paper);
+  border-bottom-color: var(--accent-bright);
+}
+
+/* ---------- Groups (rooms/areas made of one or more lights) ---------- */
+.groups-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+.edit-layout-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--paper-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.edit-layout-btn:hover { color: var(--paper); border-color: var(--paper-dim); }
+.edit-layout-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-bright);
+  color: var(--paper);
+}
+
+.group-meta {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--paper-dim);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.group-edit-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.group-edit-row button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--paper-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.assign-lights-btn:hover, #createGroupBtn:hover, #cancelGroupBtn:hover { color: var(--paper); border-color: var(--paper-dim); }
+.delete-group-btn:hover { color: var(--danger-bright); border-color: var(--danger); }
+#createGroupBtn { background: var(--accent); border-color: var(--accent); color: #16210f; font-weight: 600; }
+#createGroupBtn:hover { background: var(--accent-bright); color: #16210f; }
+
+.assign-lights-menu {
+  margin-top: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.assign-lights-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.assign-lights-row input { accent-color: var(--accent-bright); width: 15px; height: 15px; flex-shrink: 0; }
+.assign-empty { font-size: 12.5px; color: var(--paper-dim); padding: 6px 2px; }
+
+.add-group-tile {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--paper-dim);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 18px;
+  cursor: pointer;
+}
+.add-group-tile:hover { color: var(--paper); border-color: var(--accent-bright); }
+
+.add-group-card { border-style: dashed; }
+.add-group-card::before { display: none; }
+.add-group-input {
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--paper);
+  padding: 9px 11px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  margin: 10px 0 0;
+}
+.add-group-input:focus { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
