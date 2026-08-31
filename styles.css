@@ -11,6 +11,94 @@
   --danger: #c0604a;
   --danger-bright: #d97a63;
 }
+
+/* ---------- Site-wide colour themes ----------
+   Each block overrides the same token set :root defines above, so every
+   existing component re-themes automatically with no per-component
+   changes. --danger/--danger-bright are deliberately left constant
+   across all themes - errors should read the same regardless of theme.
+   Applied via a data-theme attribute on <html>, set from app-shared.js's
+   applyTheme(); see THEMES there for the id/label pairs. "standard" (the
+   :root palette above) has no block here - selecting it just removes
+   the attribute. */
+[data-theme="slate"] {
+  --bg: #1c2226;
+  --surface: #252d33;
+  --surface-raised: #2e3841;
+  --border: #3f4b54;
+  --paper: #e6ecef;
+  --paper-dim: #93a4ad;
+  --accent: #6a95a8;
+  --accent-bright: #8fbdd1;
+  --accent-soft: rgba(143, 189, 209, 0.15);
+}
+[data-theme="terracotta"] {
+  --bg: #241c18;
+  --surface: #2e241f;
+  --surface-raised: #392c25;
+  --border: #4d3c32;
+  --paper: #f0e4d8;
+  --paper-dim: #b39a87;
+  --accent: #b06a44;
+  --accent-bright: #d68e5f;
+  --accent-soft: rgba(214, 142, 95, 0.15);
+}
+[data-theme="plum"] {
+  --bg: #201823;
+  --surface: #29202e;
+  --surface-raised: #332839;
+  --border: #453a4d;
+  --paper: #ece3ee;
+  --paper-dim: #a494ab;
+  --accent: #8a5f9c;
+  --accent-bright: #b083c4;
+  --accent-soft: rgba(176, 131, 196, 0.15);
+}
+[data-theme="navy"] {
+  --bg: #161c26;
+  --surface: #1e2631;
+  --surface-raised: #26303d;
+  --border: #374554;
+  --paper: #e2e8f0;
+  --paper-dim: #8a97a8;
+  --accent: #4f6f9c;
+  --accent-bright: #7098c9;
+  --accent-soft: rgba(112, 152, 201, 0.15);
+}
+[data-theme="copper"] {
+  --bg: #221a15;
+  --surface: #2c221b;
+  --surface-raised: #372b22;
+  --border: #4a3a2d;
+  --paper: #f2e6d6;
+  --paper-dim: #bfa082;
+  --accent: #c07a3e;
+  --accent-bright: #e3a35f;
+  --accent-soft: rgba(227, 163, 95, 0.15);
+}
+[data-theme="forest"] {
+  --bg: #14211c;
+  --surface: #1c2b24;
+  --surface-raised: #24362d;
+  --border: #33493d;
+  --paper: #e2ede7;
+  --paper-dim: #8fa89b;
+  --accent: #3f8d6c;
+  --accent-bright: #5fb98d;
+  --accent-soft: rgba(95, 185, 141, 0.15);
+}
+[data-theme="charcoal"] {
+  --bg: #1c1c1e;
+  --surface: #262628;
+  --surface-raised: #303032;
+  --border: #434345;
+  --paper: #ececec;
+  --paper-dim: #9c9c9e;
+  --accent: #8a8a8e;
+  --accent-bright: #c7c7ca;
+  --accent-soft: rgba(199, 199, 202, 0.15);
+}
+
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -729,6 +817,46 @@ input[type="range"].light-brightness::-moz-range-thumb {
 }
 
 /* ---------- Home page (personal, per-login grid of boxes) ---------- */
+.header-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.home-settings-btn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--paper-dim);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-settings-btn:hover { color: var(--paper); border-color: var(--paper-dim); }
+
+.home-settings-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: -6px 0 20px;
+}
+.home-settings-panel select {
+  flex: 1;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--paper);
+  padding: 8px 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+}
+
 .home-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

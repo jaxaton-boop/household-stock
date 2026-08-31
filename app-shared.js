@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, addDoc
+  getFirestore, collection, addDoc, doc, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   getDatabase, ref, update, serverTimestamp
@@ -117,6 +117,59 @@ export function pickTextColors(r, g, b) {
   return perceivedBrightness > 150
     ? { paper: '#1a1e15', paperDim: '#3f453a' } // dark text on a light/bright colour
     : { paper: '#f4f0e4', paperDim: '#c9c2ae' }; // light text on a dark/deep colour
+}
+
+// ---------------------------------------------------------------
+// Site-wide colour themes. Each entry beyond "standard" corresponds to
+// a [data-theme="id"] block in styles.css that overrides the same set
+// of CSS custom properties the default :root already defines, so every
+// existing component (cards, buttons, sidebar, etc.) re-themes for free
+// with no per-component changes. "standard" is just the default :root
+// palette - selecting it removes the data-theme attribute entirely
+// rather than duplicating those values in a redundant CSS block.
+//
+// The theme choice lives in the same per-user homeLayouts/{uid}
+// Firestore document as the Home page's box layout (a "settings.theme"
+// field), and applies everywhere - not just the Home page - because
+// every page imports this file and calls initAuthGate, which starts
+// the listener below as soon as sign-in resolves. Signed-out visitors
+// always see "standard": nothing sets the attribute until a signed-in
+// user's own preference is read back.
+export const THEMES = [
+  { id: 'standard', label: 'Standard (Olive)' },
+  { id: 'slate', label: 'Slate' },
+  { id: 'terracotta', label: 'Terracotta' },
+  { id: 'plum', label: 'Plum' },
+  { id: 'navy', label: 'Navy' },
+  { id: 'copper', label: 'Copper' },
+  { id: 'forest', label: 'Forest' },
+  { id: 'charcoal', label: 'Charcoal' }
+];
+
+export function applyTheme(themeId) {
+  if (!themeId || themeId === 'standard') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', themeId);
+  }
+}
+
+let themeUnsubscribe = null;
+
+function startThemeListener(uid) {
+  if (!db) return;
+  if (themeUnsubscribe) { themeUnsubscribe(); themeUnsubscribe = null; }
+  themeUnsubscribe = onSnapshot(doc(db, 'homeLayouts', uid),
+    (snapshot) => {
+      const theme = snapshot.exists() ? snapshot.data()?.settings?.theme : null;
+      applyTheme(theme);
+    },
+    () => {
+      // Couldn't read the preference (e.g. rules not published yet) -
+      // fall back to standard rather than leaving a stale theme applied.
+      applyTheme(null);
+    }
+  );
 }
 
 // Builds one history log line from a Firestore history entry (as returned
@@ -265,11 +318,14 @@ export function initAuthGate({ activePage, onSignedIn }) {
       authCard.classList.add('hidden');
       appWrap.classList.remove('hidden');
       if (signedInAs) signedInAs.textContent = `Signed in as ${user.email}`;
+      startThemeListener(user.uid);
       onSignedIn(user);
     } else {
       state.userEmail = null;
       appWrap.classList.add('hidden');
       authCard.classList.remove('hidden');
+      if (themeUnsubscribe) { themeUnsubscribe(); themeUnsubscribe = null; }
+      applyTheme(null); // standard for signed-out visitors
     }
   });
 }

@@ -41,12 +41,18 @@
             <h1>Home</h1>
             <p class="sub" id="signedInAs"></p>
           </div>
-          <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
+          <div class="header-btn-group">
+            <button class="home-settings-btn" id="homeSettingsBtn" type="button" aria-label="Home page settings">⚙</button>
+            <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
+          </div>
         </header>
 
-        <p class="sub" style="margin:-6px 0 20px;">
-          This layout is personal to your account — changes you make here aren't visible to anyone else signed in.
-        </p>
+        <div class="home-settings-panel hidden" id="homeSettingsPanel">
+          <div class="control-row">
+            <span class="control-label">Theme</span>
+            <select id="themeSelect"></select>
+          </div>
+        </div>
 
         <div class="home-grid" id="homeGrid">Loading…</div>
         <div class="error-msg" id="errorMsg"></div>
@@ -59,7 +65,7 @@
   <script type="module">
     import {
       db, auth, rtdb, escapeHtml, initAuthGate, logChange, COMPONENTS_DATABASE_NAME,
-      writeLightDesired, rgbToHex, hexToRgb, pickTextColors
+      writeLightDesired, rgbToHex, hexToRgb, pickTextColors, THEMES
     } from "./app-shared.js";
     import {
       doc, collection, onSnapshot, setDoc, updateDoc, increment
@@ -71,6 +77,32 @@
     const BOX_COUNT = 8;
     const homeGrid = document.getElementById('homeGrid');
     const errorMsg = document.getElementById('errorMsg');
+    const homeSettingsBtn = document.getElementById('homeSettingsBtn');
+    const homeSettingsPanel = document.getElementById('homeSettingsPanel');
+    const themeSelect = document.getElementById('themeSelect');
+
+    // ============================================================
+    // Home page settings panel (currently just Theme; more settings can
+    // be added here later using the same panel/pattern).
+    // ============================================================
+    themeSelect.innerHTML = THEMES.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join('');
+
+    homeSettingsBtn.addEventListener('click', () => {
+      homeSettingsPanel.classList.toggle('hidden');
+    });
+
+    themeSelect.addEventListener('change', async () => {
+      if (!homeDocRef) return;
+      try {
+        await setDoc(homeDocRef, { settings: { theme: themeSelect.value } }, { merge: true });
+        // No need to call applyTheme() here directly - app-shared.js's own
+        // theme listener (started at sign-in, on every page including
+        // this one) is watching this same document and repaints as soon
+        // as the write lands.
+      } catch (err) {
+        errorMsg.textContent = 'Could not save your theme — check your connection and try again.';
+      }
+    });
 
     // ============================================================
     // Toast (same short-confirmation pattern as the Lights page's
@@ -111,7 +143,9 @@
       homeDocRef = doc(db, 'homeLayouts', auth.currentUser.uid);
       onSnapshot(homeDocRef,
         (snapshot) => {
-          boxesData = (snapshot.exists() && snapshot.data().boxes) || {};
+          const data = snapshot.exists() ? snapshot.data() : {};
+          boxesData = data.boxes || {};
+          themeSelect.value = data.settings?.theme || 'standard';
           renderHome();
         },
         (err) => {
