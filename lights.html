@@ -72,7 +72,8 @@
 
   <script type="module">
     import {
-      auth, rtdb, escapeHtml, initAuthGate
+      auth, rtdb, escapeHtml, initAuthGate,
+      writeLightDesired, rgbToHex, hexToRgb, pickTextColors
     } from "./app-shared.js";
     import {
       ref, onValue, update, remove, push, set, serverTimestamp
@@ -168,18 +169,13 @@
       });
     }
 
-    // Shared by individual lights AND groups: groups fan this same write
-    // out to each of their assigned lights (see writeGroupDesired below),
-    // so a single light's own poll -> apply -> report loop on the ESP32
-    // handles a group change exactly like a direct one.
+    // writeDesired wraps the shared writeLightDesired helper (from
+    // app-shared.js) purely to surface a page-local error message on
+    // failure - the write itself, and the "groups fan this out to each
+    // member light" behaviour, are identical to before.
     function writeDesired(hueId, patch) {
       errorMsg.textContent = '';
-      const desiredRef = ref(rtdb, `lights/${hueId}/desired`);
-      update(desiredRef, {
-        ...patch,
-        updatedBy: auth?.currentUser?.email || 'unknown',
-        updatedAt: serverTimestamp()
-      }).catch(() => {
+      writeLightDesired(hueId, patch).catch(() => {
         errorMsg.textContent = 'Could not save that change — check your connection and try again.';
       });
     }
@@ -250,31 +246,8 @@
       return matches ? 'Applied' : 'Applying…';
     }
 
-    function rgbToHex(r, g, b) {
-      const c = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
-      return `#${c(r)}${c(g)}${c(b)}`;
-    }
-
-    function hexToRgb(hex) {
-      const clean = hex.replace('#', '');
-      return {
-        r: parseInt(clean.substring(0, 2), 16),
-        g: parseInt(clean.substring(2, 4), 16),
-        b: parseInt(clean.substring(4, 6), 16)
-      };
-    }
-
-    // Picks a readable text/label colour pair for a given background
-    // colour, using perceived brightness (ITU-R BT.601) rather than a
-    // straight average - the eye reads green as brighter than blue at
-    // the same numeric value, so this avoids picking dark text on a
-    // background that's actually a deep, dark blue.
-    function pickTextColors(r, g, b) {
-      const perceivedBrightness = (r * 299 + g * 587 + b * 114) / 1000;
-      return perceivedBrightness > 150
-        ? { paper: '#1a1e15', paperDim: '#3f453a' } // dark text on a light/bright colour
-        : { paper: '#f4f0e4', paperDim: '#c9c2ae' }; // light text on a dark/deep colour
-    }
+    // rgbToHex, hexToRgb, and pickTextColors now come from app-shared.js
+    // so the Home page's boxes can render colour exactly the same way.
 
     // ============================================================
     // Groups (rooms/areas made of one or more lights)

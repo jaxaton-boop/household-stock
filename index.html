@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stock List — Household Stock</title>
+<title>Home — Household Stock</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
@@ -38,130 +38,461 @@
         <header>
           <div>
             <div class="eyebrow">Household · Live list</div>
-            <h1>Stock List</h1>
+            <h1>Home</h1>
             <p class="sub" id="signedInAs"></p>
           </div>
           <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
         </header>
 
-        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+        <p class="sub" style="margin:-6px 0 20px;">
+          This layout is personal to your account — changes you make here aren't visible to anyone else signed in.
+        </p>
 
-        <form class="add-form" id="addForm">
-          <input id="newName" type="text" placeholder="New item name" autocomplete="off" required>
-          <input id="newCount" type="number" min="0" step="1" value="1" required>
-          <button type="submit">Add item</button>
-        </form>
+        <div class="home-grid" id="homeGrid">Loading…</div>
         <div class="error-msg" id="errorMsg"></div>
-
-        <div class="list" id="list"></div>
       </div>
     </div>
+
+    <div class="toast" id="homeToast"></div>
   </div>
 
   <script type="module">
     import {
-      db, logChange, escapeHtml, initAuthGate
+      db, auth, rtdb, escapeHtml, initAuthGate,
+      writeLightDesired, rgbToHex, hexToRgb, pickTextColors
     } from "./app-shared.js";
     import {
-      collection, addDoc, deleteDoc, doc, updateDoc, onSnapshot, increment
+      doc, onSnapshot, setDoc, updateDoc
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import {
+      ref, onValue, update, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-    const listEl = document.getElementById('list');
-    const addForm = document.getElementById('addForm');
-    const newName = document.getElementById('newName');
-    const newCount = document.getElementById('newCount');
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
+    const BOX_COUNT = 8;
+    const homeGrid = document.getElementById('homeGrid');
     const errorMsg = document.getElementById('errorMsg');
 
-    let listenerStarted = false;
-    function startListListener() {
-      if (listenerStarted || !db) return;
-      listenerStarted = true;
-      const itemsCol = collection(db, "items");
+    // ============================================================
+    // Toast (same short-confirmation pattern as the Lights page's
+    // Groups tab, for group-bound boxes - see writeGroupDesired below)
+    // ============================================================
+    const toastEl = document.getElementById('homeToast');
+    let toastTimeout = null;
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add('visible');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toastEl.classList.remove('visible'), 5000);
+    }
 
-      onSnapshot(itemsCol,
+    // ============================================================
+    // State
+    // ============================================================
+    let homeDocRef = null;       // Firestore doc for THIS signed-in user only
+    let boxesData = {};          // { "0": { module, targetType, targetId } | undefined, ... "7": ... }
+    let lightsData = {};         // mirrors /lights (read here to show names/state; writes reuse app-shared)
+    let groupsData = {};         // mirrors /groups
+    let openBoxMenu = null;      // { index, type: 'add' | 'settings' } - at most one box menu open at a time
+    let pendingGroupApplications = new Map(); // groupId -> { target, memberIds, startedAt } - see Lights page for the same pattern
+    const GROUP_APPLY_GIVE_UP_MS = 20000;
+
+    let homeListenerStarted = false;
+    let lightsListenerStarted = false;
+    let groupsListenerStarted = false;
+
+    function startHomeListener() {
+      if (homeListenerStarted || !db || !auth?.currentUser) return;
+      homeListenerStarted = true;
+
+      homeDocRef = doc(db, 'homeLayouts', auth.currentUser.uid);
+      onSnapshot(homeDocRef,
         (snapshot) => {
-          statusDot.classList.remove('offline');
-          statusText.textContent = 'Live — connected';
-          const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          render(items);
+          boxesData = (snapshot.exists() && snapshot.data().boxes) || {};
+          renderHome();
         },
         (err) => {
-          statusDot.classList.add('offline');
-          statusText.textContent = 'Connection error';
           errorMsg.textContent = err.code === 'permission-denied'
-            ? "Your account isn't on the household allowlist yet — ask whoever set this up to add it."
-            : err.message;
+            ? "Your account isn't set up for a personal Home layout yet — ask whoever set this up to add the homeLayouts rule."
+            : `Error loading your Home layout: ${err.message}`;
         }
       );
+    }
 
-      listEl.addEventListener('click', async (e) => {
-        const itemEl = e.target.closest('.item');
-        if (!itemEl) return;
-        const id = itemEl.dataset.id;
-        const ref = doc(db, "items", id);
-        const itemName = itemEl.querySelector('.item-name').textContent;
-        const countEl = itemEl.querySelector('.count');
-        const current = Number(countEl.textContent);
-        try {
-          if (e.target.classList.contains('inc')) {
-            await updateDoc(ref, { count: increment(1) });
-            logChange(itemName, current, current + 1);
-          } else if (e.target.classList.contains('dec')) {
-            if (current > 0) {
-              await updateDoc(ref, { count: increment(-1) });
-              logChange(itemName, current, current - 1);
-            }
-          } else if (e.target.classList.contains('remove-btn')) {
-            if (confirm(`Remove "${itemName}" from the list?`)) {
-              await deleteDoc(ref);
-              logChange(itemName, current, 0);
-            }
-          }
-        } catch (err) {
-          errorMsg.textContent = 'Could not save that change — check your connection and try again.';
-        }
-      });
-
-      addForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const name = newName.value.trim();
-        const count = parseInt(newCount.value, 10) || 0;
-        if (!name) return;
-        try {
-          await addDoc(itemsCol, { name, count });
-          logChange(name, 0, count);
-          newName.value = '';
-          newCount.value = '1';
-          newName.focus();
-        } catch (err) {
-          errorMsg.textContent = 'Could not add that item — check your connection and try again.';
-        }
+    function startLightsListener() {
+      if (lightsListenerStarted || !rtdb) return;
+      lightsListenerStarted = true;
+      onValue(ref(rtdb, 'lights'), (snapshot) => {
+        lightsData = snapshot.val() || {};
+        renderHome();
+        checkPendingGroupApplications();
       });
     }
 
-    function render(items) {
+    function startGroupsListener() {
+      if (groupsListenerStarted || !rtdb) return;
+      groupsListenerStarted = true;
+      onValue(ref(rtdb, 'groups'), (snapshot) => {
+        groupsData = snapshot.val() || {};
+        renderHome();
+      });
+    }
+
+    // ============================================================
+    // Writing a box's own light/group target(s) - group changes reuse
+    // the exact same fan-out + "applied" confirmation pattern as the
+    // Lights page's Groups tab; light changes reuse writeLightDesired
+    // directly from app-shared.js. Nothing here talks to the ESP32 or
+    // Hue Bridge - it's all mediated through the same /lights and
+    // /groups nodes the Lights page already uses.
+    // ============================================================
+    function writeBoxTarget(hueId, patch) {
       errorMsg.textContent = '';
-      if (items.length === 0) {
-        listEl.innerHTML = `<div class="empty">No items yet — add your first one below.</div>`;
+      writeLightDesired(hueId, patch).catch(() => {
+        errorMsg.textContent = 'Could not save that change — check your connection and try again.';
+      });
+    }
+
+    function writeGroupDesired(groupId, patch) {
+      errorMsg.textContent = '';
+      const currentDesired = groupsData[groupId]?.desired || {};
+      const target = { ...currentDesired, ...patch };
+
+      update(ref(rtdb, `groups/${groupId}/desired`), {
+        ...patch,
+        updatedBy: auth?.currentUser?.email || 'unknown',
+        updatedAt: serverTimestamp()
+      }).catch(() => {
+        errorMsg.textContent = 'Could not save that change — check your connection and try again.';
+      });
+
+      const memberIds = Object.keys(groupsData[groupId]?.lightIds || {});
+      memberIds.forEach(lightId => writeBoxTarget(lightId, patch));
+
+      if (memberIds.length > 0) {
+        pendingGroupApplications.set(groupId, { target, memberIds, startedAt: Date.now() });
+      }
+    }
+
+    function checkPendingGroupApplications() {
+      const now = Date.now();
+      for (const [groupId, pending] of pendingGroupApplications.entries()) {
+        if (now - pending.startedAt > GROUP_APPLY_GIVE_UP_MS) {
+          pendingGroupApplications.delete(groupId);
+          continue;
+        }
+        const { target, memberIds } = pending;
+        let allResolved = true;
+        let matchedCount = 0;
+        let errorCount = 0;
+        for (const lightId of memberIds) {
+          const reported = lightsData[lightId]?.reported;
+          if (!reported || reported.appliedAt === undefined) { allResolved = false; continue; }
+          if (reported.commError) { errorCount++; continue; }
+          const matches = reported.on === (target.on ?? false)
+            && reported.brightness === (target.brightness ?? 100)
+            && reported.r === (target.r ?? 255)
+            && reported.g === (target.g ?? 255)
+            && reported.b === (target.b ?? 255);
+          if (matches) matchedCount++;
+          else allResolved = false;
+        }
+        if (!allResolved) continue;
+        pendingGroupApplications.delete(groupId);
+        const groupName = groupsData[groupId]?.name || 'Group';
+        const total = memberIds.length;
+        const message = errorCount === 0
+          ? `${groupName}: applied to all ${matchedCount} light${matchedCount === 1 ? '' : 's'}`
+          : `${groupName}: applied to ${matchedCount} of ${total} light${total === 1 ? '' : 's'} (${errorCount} unreachable)`;
+        showToast(message);
+      }
+    }
+
+    // ============================================================
+    // Rendering
+    // ============================================================
+    function renderHome() {
+      let html = '';
+      for (let i = 0; i < BOX_COUNT; i++) {
+        html += boxHtml(String(i));
+      }
+      homeGrid.innerHTML = html;
+      if (openBoxMenu?.type === 'add') {
+        document.querySelector(`.home-box[data-index="${openBoxMenu.index}"] .add-module-select`)?.focus();
+      }
+    }
+
+    function boxHtml(index) {
+      const box = boxesData[index];
+      if (!box) return emptyBoxHtml(index);
+      if (box.module === 'lights') {
+        if (!box.targetType || !box.targetId) return unconfiguredBoxHtml(index, box);
+        return configuredBoxHtml(index, box);
+      }
+      return emptyBoxHtml(index); // unknown/future module type - fall back safely
+    }
+
+    function emptyBoxHtml(index) {
+      const menuOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'add';
+      if (menuOpen) {
+        return `
+          <div class="light-card home-box home-box-editing" data-index="${index}">
+            <span class="control-label">Module type</span>
+            <select class="add-module-select">
+              <option value="lights">Lights</option>
+            </select>
+            <div class="group-edit-row">
+              <button type="button" class="add-module-confirm">Add</button>
+              <button type="button" class="add-module-cancel">Cancel</button>
+            </div>
+          </div>
+        `;
+      }
+      return `<button type="button" class="home-box home-box-add" data-index="${index}" aria-label="Add a module to this box">+</button>`;
+    }
+
+    function unconfiguredBoxHtml(index, box) {
+      const settingsOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings';
+      return `
+        <div class="light-card home-box" data-index="${index}">
+          <div class="light-card-top">
+            <div class="light-name">Lights module</div>
+            <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
+          </div>
+          <div class="home-box-hint">Not set up yet — tap the gear to choose a light or group.</div>
+          ${settingsOpen ? settingsMenuHtml(index, box) : ''}
+        </div>
+      `;
+    }
+
+    function configuredBoxHtml(index, box) {
+      const settingsOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings';
+      let source = null;
+      if (box.targetType === 'light') source = lightsData[box.targetId];
+      else if (box.targetType === 'group') source = groupsData[box.targetId];
+
+      if (!source) {
+        return `
+          <div class="light-card home-box" data-index="${index}">
+            <div class="light-card-top">
+              <div class="light-name">Lights module</div>
+              <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
+            </div>
+            <div class="home-box-hint">That ${escapeHtml(box.targetType)} no longer exists — tap the gear to reassign this box.</div>
+            ${settingsOpen ? settingsMenuHtml(index, box) : ''}
+          </div>
+        `;
+      }
+
+      const name = box.targetType === 'light'
+        ? (source.meta?.name || `Light ${box.targetId}`)
+        : (source.name || 'Unnamed group');
+      const desired = source.desired || {};
+      const on = desired.on ?? false;
+      const brightness = desired.brightness ?? 100;
+      const r = desired.r ?? 255, g = desired.g ?? 255, b = desired.b ?? 255;
+      const hex = rgbToHex(r, g, b);
+
+      let metaText;
+      if (box.targetType === 'group') {
+        const memberCount = Object.keys(source.lightIds || {}).length;
+        metaText = memberCount === 0 ? 'No lights assigned' : `${memberCount} light${memberCount === 1 ? '' : 's'}`;
+      } else {
+        const reported = source.reported || {};
+        if (!reported || reported.appliedAt === undefined) metaText = 'Waiting for device…';
+        else if (reported.commError) metaText = "Bridge can't reach this light";
+        else {
+          const matches = reported.on === on && reported.brightness === brightness
+            && reported.r === r && reported.g === g && reported.b === b;
+          metaText = matches ? 'Applied' : 'Applying…';
+        }
+      }
+
+      let cardStyle = '';
+      let colorClass = '';
+      if (on) {
+        const { paper, paperDim } = pickTextColors(r, g, b);
+        cardStyle = ` style="background-color: ${hex}; --paper: ${paper}; --paper-dim: ${paperDim};"`;
+        colorClass = ' home-box-colored';
+      }
+
+      return `
+        <div class="light-card home-box${colorClass}" data-index="${index}"${cardStyle}>
+          <div class="light-card-top">
+            <div class="light-name">${escapeHtml(name)}</div>
+            <div class="home-box-top-controls">
+              <label class="switch">
+                <input type="checkbox" class="box-toggle" ${on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
+                <span class="slider-track"></span>
+              </label>
+              <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
+            </div>
+          </div>
+          <div class="light-controls ${on ? '' : 'dimmed'}">
+            <div class="control-row">
+              <span class="control-label">Colour</span>
+              <input type="color" class="box-color" value="${hex}" aria-label="Colour for ${escapeHtml(name)}">
+            </div>
+            <div class="control-row">
+              <span class="control-label">Brightness</span>
+              <input type="range" class="box-brightness" min="1" max="100" value="${brightness}" aria-label="Brightness for ${escapeHtml(name)}">
+              <span class="brightness-value">${brightness}%</span>
+            </div>
+          </div>
+          <div class="group-meta">${escapeHtml(metaText)}</div>
+          ${settingsOpen ? settingsMenuHtml(index, box) : ''}
+        </div>
+      `;
+    }
+
+    function settingsMenuHtml(index, box) {
+      const lightIds = Object.keys(lightsData)
+        .sort((a, b) => (lightsData[a]?.meta?.name || a).localeCompare(lightsData[b]?.meta?.name || b));
+      const groupIds = Object.keys(groupsData)
+        .sort((a, b) => (groupsData[a]?.name || '').localeCompare(groupsData[b]?.name || ''));
+
+      const lightOptions = lightIds.map(id => {
+        const name = lightsData[id]?.meta?.name || `Light ${id}`;
+        const selected = box.targetType === 'light' && box.targetId === id;
+        return `<option value="${id}" ${selected ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+      }).join('');
+
+      const groupOptions = groupIds.map(id => {
+        const name = groupsData[id]?.name || 'Unnamed group';
+        const selected = box.targetType === 'group' && box.targetId === id;
+        return `<option value="${id}" ${selected ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+      }).join('');
+
+      return `
+        <div class="home-box-settings">
+          <div class="control-row">
+            <span class="control-label">Light</span>
+            <select class="box-target-select" data-target-type="light">
+              <option value="">— none —</option>
+              ${lightOptions}
+            </select>
+          </div>
+          <div class="control-row">
+            <span class="control-label">Group</span>
+            <select class="box-target-select" data-target-type="group">
+              <option value="">— none —</option>
+              ${groupOptions}
+            </select>
+          </div>
+          <div class="group-edit-row">
+            <button type="button" class="remove-module-btn">Remove module</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // ============================================================
+    // Events
+    // ============================================================
+    homeGrid.addEventListener('click', async (e) => {
+      const addBtn = e.target.closest('.home-box-add');
+      if (addBtn) {
+        openBoxMenu = { index: addBtn.dataset.index, type: 'add' };
+        renderHome();
         return;
       }
-      items.sort((a, b) => a.name.localeCompare(b.name));
-      listEl.innerHTML = items.map(item => `
-        <div class="item" data-id="${item.id}">
-          <div class="item-name">${escapeHtml(item.name)}</div>
-          <div class="stepper">
-            <button type="button" class="dec" aria-label="Use one ${escapeHtml(item.name)}">−</button>
-            <div class="count">${item.count}</div>
-            <button type="button" class="inc" aria-label="Add one ${escapeHtml(item.name)}">+</button>
-          </div>
-          <button type="button" class="remove-btn" aria-label="Remove ${escapeHtml(item.name)}">✕</button>
-        </div>
-      `).join('');
-    }
 
-    initAuthGate({ activePage: 'index.html', onSignedIn: startListListener });
+      if (e.target.closest('.add-module-cancel')) {
+        openBoxMenu = null;
+        renderHome();
+        return;
+      }
+
+      const confirmBtn = e.target.closest('.add-module-confirm');
+      if (confirmBtn) {
+        const box = e.target.closest('.home-box');
+        const index = box.dataset.index;
+        try {
+          await setDoc(homeDocRef, { boxes: { [index]: { module: 'lights' } } }, { merge: true });
+          openBoxMenu = null;
+        } catch (err) {
+          errorMsg.textContent = 'Could not add that module — check your connection and try again.';
+        }
+        return;
+      }
+
+      const gearBtn = e.target.closest('.home-box-gear');
+      if (gearBtn) {
+        const index = gearBtn.dataset.index;
+        openBoxMenu = (openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings')
+          ? null
+          : { index, type: 'settings' };
+        renderHome();
+        return;
+      }
+
+      const removeBtn = e.target.closest('.remove-module-btn');
+      if (removeBtn) {
+        const box = e.target.closest('.home-box');
+        const index = box.dataset.index;
+        if (confirm('Remove this box\'s module? The light or group itself is not affected.')) {
+          try {
+            await updateDoc(homeDocRef, { [`boxes.${index}`]: null });
+            openBoxMenu = null;
+          } catch (err) {
+            errorMsg.textContent = 'Could not remove that module — check your connection and try again.';
+          }
+        }
+        return;
+      }
+    });
+
+    homeGrid.addEventListener('change', async (e) => {
+      const box = e.target.closest('.home-box');
+      if (!box) return;
+      const index = box.dataset.index;
+
+      if (e.target.classList.contains('box-target-select')) {
+        const targetType = e.target.value ? e.target.dataset.targetType : null;
+        const targetId = e.target.value || null;
+        try {
+          await updateDoc(homeDocRef, {
+            [`boxes.${index}.targetType`]: targetType,
+            [`boxes.${index}.targetId`]: targetId
+          });
+        } catch (err) {
+          errorMsg.textContent = 'Could not save that selection — check your connection and try again.';
+        }
+        return;
+      }
+
+      const current = boxesData[index];
+      if (!current || !current.targetType || !current.targetId) return;
+      const dispatch = current.targetType === 'group' ? writeGroupDesired : writeBoxTarget;
+
+      if (e.target.classList.contains('box-toggle')) {
+        dispatch(current.targetId, { on: e.target.checked });
+      } else if (e.target.classList.contains('box-color')) {
+        const { r, g, b } = hexToRgb(e.target.value);
+        dispatch(current.targetId, { r, g, b });
+      } else if (e.target.classList.contains('box-brightness')) {
+        dispatch(current.targetId, { brightness: Number(e.target.value) });
+      }
+    });
+
+    // Live-update the "%" label while dragging, without writing on every pixel.
+    homeGrid.addEventListener('input', (e) => {
+      if (!e.target.classList.contains('box-brightness')) return;
+      const box = e.target.closest('.home-box');
+      const label = box?.querySelector('.brightness-value');
+      if (label) label.textContent = `${e.target.value}%`;
+    });
+
+    // ============================================================
+    // Auth gate
+    // ============================================================
+    initAuthGate({
+      activePage: 'index.html',
+      onSignedIn: () => {
+        startHomeListener();
+        startLightsListener();
+        startGroupsListener();
+      }
+    });
   </script>
 </body>
 </html>

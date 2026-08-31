@@ -727,3 +727,96 @@ input[type="range"].light-brightness::-moz-range-thumb {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ---------- Home page (personal, per-login grid of boxes) ---------- */
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .home-grid { grid-template-columns: 1fr; }
+}
+
+.home-box {
+  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-box-add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--paper-dim);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 168px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-box-add:hover { color: var(--paper); border-color: var(--accent-bright); }
+
+.home-box-editing {
+  justify-content: center;
+}
+
+.home-box-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--paper-dim);
+  line-height: 1.5;
+}
+
+.home-box-top-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.home-box-gear {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--paper-dim);
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-box-gear:hover { color: var(--paper); border-color: var(--paper-dim); }
+
+.home-box-settings {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.home-box-settings select {
+  flex: 1;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--paper);
+  padding: 7px 9px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+}
+
+.home-box-colored::before { display: none; }
+
+/* The Home page's "add module" form reuses .group-edit-row for its
+   buttons; its select gets its own rule since it isn't nested inside
+   the .home-box-settings panel used by configured/unconfigured boxes. */
+.home-box-editing select { width: 100%; margin-top: 4px; }
+select.add-module-select { background: var(--surface-raised); border: 1px solid var(--border); border-radius: 7px; color: var(--paper); padding: 9px 11px; font-family: 'Inter', sans-serif; font-size: 14px; margin-top: 8px; }
