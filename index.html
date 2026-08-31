@@ -58,11 +58,11 @@
 
   <script type="module">
     import {
-      db, auth, rtdb, escapeHtml, initAuthGate,
+      db, auth, rtdb, escapeHtml, initAuthGate, logChange, COMPONENTS_DATABASE_NAME,
       writeLightDesired, rgbToHex, hexToRgb, pickTextColors
     } from "./app-shared.js";
     import {
-      doc, onSnapshot, setDoc, updateDoc
+      doc, collection, onSnapshot, setDoc, updateDoc, increment
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import {
       ref, onValue, update, serverTimestamp
@@ -92,6 +92,8 @@
     let boxesData = {};          // { "0": { module, targetType, targetId } | undefined, ... "7": ... }
     let lightsData = {};         // mirrors /lights (read here to show names/state; writes reuse app-shared)
     let groupsData = {};         // mirrors /groups
+    let stockItemsData = {};     // mirrors the "items" Firestore collection (Stock List page)
+    let componentsItemsData = {}; // mirrors the "components" Firestore collection (Components page)
     let openBoxMenu = null;      // { index, type: 'add' | 'settings' } - at most one box menu open at a time
     let pendingGroupApplications = new Map(); // groupId -> { target, memberIds, startedAt } - see Lights page for the same pattern
     const GROUP_APPLY_GIVE_UP_MS = 20000;
@@ -99,6 +101,8 @@
     let homeListenerStarted = false;
     let lightsListenerStarted = false;
     let groupsListenerStarted = false;
+    let stockListenerStarted = false;
+    let componentsListenerStarted = false;
 
     function startHomeListener() {
       if (homeListenerStarted || !db || !auth?.currentUser) return;
@@ -135,6 +139,45 @@
         groupsData = snapshot.val() || {};
         renderHome();
       });
+    }
+
+    // These two mirror the Stock List and Components pages' own
+    // collections read-only, purely so a Stock-module box can show a
+    // live count and offer an item picker without duplicating logic -
+    // the actual quantity writes (see adjustStock, below) go through
+    // the exact same collection and history log those pages use.
+    function startStockListener() {
+      if (stockListenerStarted || !db) return;
+      stockListenerStarted = true;
+      onSnapshot(collection(db, 'items'),
+        (snapshot) => {
+          stockItemsData = {};
+          snapshot.forEach(d => { stockItemsData[d.id] = { id: d.id, ...d.data() }; });
+          renderHome();
+        },
+        (err) => {
+          errorMsg.textContent = err.code === 'permission-denied'
+            ? "Your account isn't on the household allowlist yet — ask whoever set this up to add it."
+            : `Error loading the stock list: ${err.message}`;
+        }
+      );
+    }
+
+    function startComponentsListener() {
+      if (componentsListenerStarted || !db) return;
+      componentsListenerStarted = true;
+      onSnapshot(collection(db, 'components'),
+        (snapshot) => {
+          componentsItemsData = {};
+          snapshot.forEach(d => { componentsItemsData[d.id] = { id: d.id, ...d.data() }; });
+          renderHome();
+        },
+        (err) => {
+          errorMsg.textContent = err.code === 'permission-denied'
+            ? "Your account isn't on the household allowlist yet — ask whoever set this up to add it."
+            : `Error loading components: ${err.message}`;
+        }
+      );
     }
 
     // ============================================================
@@ -207,6 +250,41 @@
       }
     }
 
+    // Adjusts a Stock-module box's item by delta (-5, -1, +1, or +5),
+    // clamped at zero the same way the Stock List/Components pages'
+    // own -1 button already refuses to go below zero. Writes to the
+    // exact same Firestore collection those pages use, and logs the
+    // change with logChange (from app-shared.js) so it appears in the
+    // History Log identically to a change made from those pages -
+    // including the category/part-number columns for a Components item.
+    async function adjustStock(index, delta) {
+      const box = boxesData[index];
+      if (!box || box.module !== 'stock' || !box.theme || !box.itemId) return;
+      const itemsMap = box.theme === 'components' ? componentsItemsData : stockItemsData;
+      const item = itemsMap[box.itemId];
+      if (!item) return;
+
+      const current = item.count ?? 0;
+      const wouldGoNegative = current + delta < 0;
+      const newCount = Math.max(0, current + delta);
+      if (newCount === current) return; // e.g. -1/-5 pressed while already at 0
+
+      errorMsg.textContent = '';
+      try {
+        const itemRef = doc(db, box.theme, box.itemId);
+        // Prefer an atomic increment when it can't go negative; only
+        // fall back to setting an absolute value when clamping to zero,
+        // since increment() itself has no floor.
+        await updateDoc(itemRef, { count: wouldGoNegative ? 0 : increment(delta) });
+        const extra = box.theme === 'components'
+          ? { database: COMPONENTS_DATABASE_NAME, category: item.category, partNumber: item.partNumber }
+          : {};
+        logChange(item.name, current, newCount, extra);
+      } catch (err) {
+        errorMsg.textContent = 'Could not update that stock item — check your connection and try again.';
+      }
+    }
+
     // ============================================================
     // Rendering
     // ============================================================
@@ -225,8 +303,12 @@
       const box = boxesData[index];
       if (!box) return emptyBoxHtml(index);
       if (box.module === 'lights') {
-        if (!box.targetType || !box.targetId) return unconfiguredBoxHtml(index, box);
-        return configuredBoxHtml(index, box);
+        if (!box.targetType || !box.targetId) return unconfiguredLightsBoxHtml(index, box);
+        return configuredLightsBoxHtml(index, box);
+      }
+      if (box.module === 'stock') {
+        if (!box.theme || !box.itemId) return unconfiguredStockBoxHtml(index, box);
+        return configuredStockBoxHtml(index, box);
       }
       return emptyBoxHtml(index); // unknown/future module type - fall back safely
     }
@@ -239,6 +321,7 @@
             <span class="control-label">Module type</span>
             <select class="add-module-select">
               <option value="lights">Lights</option>
+              <option value="stock">Stock</option>
             </select>
             <div class="group-edit-row">
               <button type="button" class="add-module-confirm">Add</button>
@@ -250,7 +333,7 @@
       return `<button type="button" class="home-box home-box-add" data-index="${index}" aria-label="Add a module to this box">+</button>`;
     }
 
-    function unconfiguredBoxHtml(index, box) {
+    function unconfiguredLightsBoxHtml(index, box) {
       const settingsOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings';
       return `
         <div class="light-card home-box" data-index="${index}">
@@ -259,12 +342,12 @@
             <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
           </div>
           <div class="home-box-hint">Not set up yet — tap the gear to choose a light or group.</div>
-          ${settingsOpen ? settingsMenuHtml(index, box) : ''}
+          ${settingsOpen ? lightsSettingsMenuHtml(index, box) : ''}
         </div>
       `;
     }
 
-    function configuredBoxHtml(index, box) {
+    function configuredLightsBoxHtml(index, box) {
       const settingsOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings';
       let source = null;
       if (box.targetType === 'light') source = lightsData[box.targetId];
@@ -278,7 +361,7 @@
               <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
             </div>
             <div class="home-box-hint">That ${escapeHtml(box.targetType)} no longer exists — tap the gear to reassign this box.</div>
-            ${settingsOpen ? settingsMenuHtml(index, box) : ''}
+            ${settingsOpen ? lightsSettingsMenuHtml(index, box) : ''}
           </div>
         `;
       }
@@ -339,12 +422,12 @@
             </div>
           </div>
           <div class="group-meta">${escapeHtml(metaText)}</div>
-          ${settingsOpen ? settingsMenuHtml(index, box) : ''}
+          ${settingsOpen ? lightsSettingsMenuHtml(index, box) : ''}
         </div>
       `;
     }
 
-    function settingsMenuHtml(index, box) {
+    function lightsSettingsMenuHtml(index, box) {
       const lightIds = Object.keys(lightsData)
         .sort((a, b) => (lightsData[a]?.meta?.name || a).localeCompare(lightsData[b]?.meta?.name || b));
       const groupIds = Object.keys(groupsData)
@@ -385,6 +468,98 @@
       `;
     }
 
+    function unconfiguredStockBoxHtml(index, box) {
+      const settingsOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings';
+      return `
+        <div class="light-card home-box" data-index="${index}">
+          <div class="light-card-top">
+            <div class="light-name">Stock module</div>
+            <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
+          </div>
+          <div class="home-box-hint">Not set up yet — tap the gear to choose a stock item.</div>
+          ${settingsOpen ? stockSettingsMenuHtml(index, box) : ''}
+        </div>
+      `;
+    }
+
+    function configuredStockBoxHtml(index, box) {
+      const settingsOpen = openBoxMenu && openBoxMenu.index === index && openBoxMenu.type === 'settings';
+      const itemsMap = box.theme === 'components' ? componentsItemsData : stockItemsData;
+      const item = itemsMap[box.itemId];
+
+      if (!item) {
+        return `
+          <div class="light-card home-box" data-index="${index}">
+            <div class="light-card-top">
+              <div class="light-name">Stock module</div>
+              <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
+            </div>
+            <div class="home-box-hint">That item no longer exists — tap the gear to reassign this box.</div>
+            ${settingsOpen ? stockSettingsMenuHtml(index, box) : ''}
+          </div>
+        `;
+      }
+
+      const count = item.count ?? 0;
+      const themeLabel = box.theme === 'components' ? 'Components' : 'Stock List';
+
+      return `
+        <div class="light-card home-box" data-index="${index}">
+          <div class="light-card-top">
+            <div class="light-name">${escapeHtml(item.name)}</div>
+            <button type="button" class="home-box-gear" data-index="${index}" aria-label="Box settings">⚙</button>
+          </div>
+          <div class="stock-stepper">
+            <button type="button" class="stock-adj-btn" data-delta="-5">−5</button>
+            <button type="button" class="stock-adj-btn" data-delta="-1">−1</button>
+            <div class="count stock-count">${count}</div>
+            <button type="button" class="stock-adj-btn" data-delta="1">+1</button>
+            <button type="button" class="stock-adj-btn" data-delta="5">+5</button>
+          </div>
+          <div class="group-meta">${escapeHtml(themeLabel)}</div>
+          ${settingsOpen ? stockSettingsMenuHtml(index, box) : ''}
+        </div>
+      `;
+    }
+
+    function stockSettingsMenuHtml(index, box) {
+      const itemsMap = box.theme === 'components' ? componentsItemsData
+        : box.theme === 'items' ? stockItemsData
+        : null;
+
+      let itemOptions = '';
+      if (itemsMap) {
+        const ids = Object.keys(itemsMap).sort((a, b) => (itemsMap[a].name || '').localeCompare(itemsMap[b].name || ''));
+        itemOptions = ids.map(id => {
+          const selected = box.itemId === id;
+          return `<option value="${id}" ${selected ? 'selected' : ''}>${escapeHtml(itemsMap[id].name)}</option>`;
+        }).join('');
+      }
+
+      return `
+        <div class="home-box-settings">
+          <div class="control-row">
+            <span class="control-label">Theme</span>
+            <select class="box-theme-select">
+              <option value="">— none —</option>
+              <option value="items" ${box.theme === 'items' ? 'selected' : ''}>Stock List</option>
+              <option value="components" ${box.theme === 'components' ? 'selected' : ''}>Components</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <span class="control-label">Item</span>
+            <select class="box-item-select" ${box.theme ? '' : 'disabled'}>
+              <option value="">— none —</option>
+              ${itemOptions}
+            </select>
+          </div>
+          <div class="group-edit-row">
+            <button type="button" class="remove-module-btn">Remove module</button>
+          </div>
+        </div>
+      `;
+    }
+
     // ============================================================
     // Events
     // ============================================================
@@ -406,12 +581,22 @@
       if (confirmBtn) {
         const box = e.target.closest('.home-box');
         const index = box.dataset.index;
+        const moduleType = box.querySelector('.add-module-select')?.value || 'lights';
         try {
-          await setDoc(homeDocRef, { boxes: { [index]: { module: 'lights' } } }, { merge: true });
+          await setDoc(homeDocRef, { boxes: { [index]: { module: moduleType } } }, { merge: true });
           openBoxMenu = null;
         } catch (err) {
           errorMsg.textContent = 'Could not add that module — check your connection and try again.';
         }
+        return;
+      }
+
+      const stockAdjBtn = e.target.closest('.stock-adj-btn');
+      if (stockAdjBtn) {
+        const box = e.target.closest('.home-box');
+        const index = box.dataset.index;
+        const delta = Number(stockAdjBtn.dataset.delta);
+        adjustStock(index, delta);
         return;
       }
 
@@ -460,6 +645,31 @@
         return;
       }
 
+      if (e.target.classList.contains('box-theme-select')) {
+        const theme = e.target.value || null;
+        try {
+          // Changing theme invalidates any previously chosen item, since
+          // it belonged to the other collection.
+          await updateDoc(homeDocRef, {
+            [`boxes.${index}.theme`]: theme,
+            [`boxes.${index}.itemId`]: null
+          });
+        } catch (err) {
+          errorMsg.textContent = 'Could not save that selection — check your connection and try again.';
+        }
+        return;
+      }
+
+      if (e.target.classList.contains('box-item-select')) {
+        const itemId = e.target.value || null;
+        try {
+          await updateDoc(homeDocRef, { [`boxes.${index}.itemId`]: itemId });
+        } catch (err) {
+          errorMsg.textContent = 'Could not save that selection — check your connection and try again.';
+        }
+        return;
+      }
+
       const current = boxesData[index];
       if (!current || !current.targetType || !current.targetId) return;
       const dispatch = current.targetType === 'group' ? writeGroupDesired : writeBoxTarget;
@@ -491,6 +701,8 @@
         startHomeListener();
         startLightsListener();
         startGroupsListener();
+        startStockListener();
+        startComponentsListener();
       }
     });
   </script>

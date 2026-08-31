@@ -815,6 +815,35 @@ input[type="range"].light-brightness::-moz-range-thumb {
 
 .home-box-colored::before { display: none; }
 
+/* Stock module: -5 / -1 / count / +1 / +5 */
+.stock-stepper {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.stock-stepper .count {
+  flex: 1;
+  text-align: center;
+  font-size: 22px;
+}
+.stock-adj-btn {
+  width: 38px;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--paper);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.stock-adj-btn:hover { background: rgba(159,201,138,0.15); border-color: var(--accent-bright); }
+.stock-adj-btn:active { background: rgba(159,201,138,0.28); }
+
 /* The Home page's "add module" form reuses .group-edit-row for its
    buttons; its select gets its own rule since it isn't nested inside
    the .home-box-settings panel used by configured/unconfigured boxes. */
