@@ -815,24 +815,28 @@ input[type="range"].light-brightness::-moz-range-thumb {
 
 .home-box-colored::before { display: none; }
 
-/* Stock module: -5 / -1 / count / +1 / +5. Reuses the site's existing
-   .stepper pill (same component as the Stock List/Components pages'
-   own +/- controls) rather than a bespoke button style, so it matches
-   the rest of the site. margin-top:auto pins it to the bottom of the
-   box regardless of how tall the box's content above it is. */
-.stock-stepper {
-  margin-top: auto;
-  padding-top: 14px;
+/* Stock module: a large centered count fills the middle of the box;
+   the -5/-1/+1/+5 row (reusing the site's existing .stepper pill, the
+   same component the Stock List/Components pages use for their own
+   +/- controls) sits on its own line underneath. flex:1 on the count
+   display consumes the box's remaining height, which is what pushes
+   the button row down to the bottom regardless of box height. */
+.stock-count-display {
+  flex: 1;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--paper);
+}
+.stock-stepper {
+  align-self: center;
 }
 .stock-stepper .stock-adj-btn {
   width: 42px;
   font-size: 13px;
-}
-.stock-count {
-  flex: 1;
-  font-size: 28px;
-  font-weight: 700;
 }
 
 /* The Home page's "add module" form reuses .group-edit-row for its
