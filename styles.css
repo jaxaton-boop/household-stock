@@ -660,6 +660,199 @@ input[type="range"].light-brightness::-moz-range-thumb {
   color: var(--danger-bright);
 }
 
+.theme-row { align-items: flex-start; }
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  flex: 1;
+}
+.theme-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  padding: 7px 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--paper);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.theme-btn:hover { border-color: var(--accent); }
+.theme-btn.active {
+  background: var(--accent);
+  border-color: var(--accent-bright);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.control-row-presets { align-items: flex-start; }
+.light-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+.light-preset-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--paper-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.light-preset-btn:hover { border-color: var(--accent); color: var(--paper); }
+.light-preset-btn.active {
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+/* ---------- Home Device Health Report page ---------- */
+.health-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.health-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  position: relative;
+}
+.health-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+.health-card.warning::before { background: #c9a94a; }
+.health-card.critical::before,
+.health-card.offline::before { background: var(--danger); }
+
+.health-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.health-name {
+  font-size: 15px;
+  font-weight: 500;
+}
+.health-role {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--paper-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+.health-pill {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-bright);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.health-pill.warning { background: rgba(201, 169, 74, 0.15); color: #d9bc63; }
+.health-pill.critical,
+.health-pill.offline { background: rgba(192, 96, 74, 0.15); color: var(--danger-bright); }
+
+.health-metrics {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.health-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.health-metric-label {
+  width: 80px;
+  flex-shrink: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  color: var(--paper-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.health-bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--surface-raised);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.health-bar-fill {
+  height: 100%;
+  background: var(--accent-bright);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.health-bar-fill.warning { background: #d9bc63; }
+.health-bar-fill.critical { background: var(--danger-bright); }
+.health-metric-value {
+  width: 56px;
+  flex-shrink: 0;
+  text-align: right;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--paper-dim);
+}
+
+.health-footer {
+  margin-top: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--paper-dim);
+}
+.health-footer.stale { color: var(--danger-bright); }
+
+.preset-row { align-items: flex-start; }
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  flex: 1;
+}
+.preset-btn {
+  font-family: 'Inter', sans-serif;
+  font-size: 12.5px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--paper);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.preset-btn:hover { border-color: var(--accent); }
+.preset-btn.active {
+  background: var(--accent);
+  border-color: var(--accent-bright);
+  color: #fff;
+  font-weight: 500;
+}
+
 /* ---------- Tabs (Lights page: Lights / Groups) ---------- */
 .tabbar {
   display: flex;

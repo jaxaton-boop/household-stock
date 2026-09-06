@@ -43,7 +43,8 @@ export const PAGES = [
   { href: 'stock.html', label: 'Stock List', icon: 'list' },
   { href: 'components.html', label: 'Components', icon: 'chip' },
   { href: 'lights.html', label: 'Lights', icon: 'bulb' },
-  { href: 'history.html', label: 'History Log', icon: 'clock' }
+  { href: 'history.html', label: 'History Log', icon: 'clock' },
+  { href: 'health.html', label: 'Device Health', icon: 'pulse' }
 ];
 
 const ICONS = {
@@ -51,7 +52,8 @@ const ICONS = {
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>',
   chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/><line x1="9" y1="2" x2="9" y2="6"/><line x1="15" y1="2" x2="15" y2="6"/><line x1="9" y1="18" x2="9" y2="22"/><line x1="15" y1="18" x2="15" y2="22"/><line x1="2" y1="9" x2="6" y2="9"/><line x1="2" y1="15" x2="6" y2="15"/><line x1="18" y1="9" x2="22" y2="9"/><line x1="18" y1="15" x2="22" y2="15"/></svg>',
   bulb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2.3h6c0-1.1.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>',
-  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V10"/><path d="M9.5 21v-6h5v6"/></svg>'
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V10"/><path d="M9.5 21v-6h5v6"/></svg>',
+  pulse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>'
 };
 
 export let db, auth, rtdb;
@@ -117,6 +119,46 @@ export function pickTextColors(r, g, b) {
   return perceivedBrightness > 150
     ? { paper: '#1a1e15', paperDim: '#3f453a' } // dark text on a light/bright colour
     : { paper: '#f4f0e4', paperDim: '#c9c2ae' }; // light text on a dark/deep colour
+}
+
+// ---------------------------------------------------------------
+// Device health — shared thresholds and status logic for the Home
+// Device Health Report page. Every reporting device writes to its own
+// `system/{deviceId}/reported` node in Realtime Database (see
+// ARCHITECTURE.md's device contract) with whichever of these fields it
+// has available; the Health page (and any future device-specific page)
+// calls evaluateHealthStatus() so every device is judged the same way
+// rather than each page inventing its own thresholds.
+// ---------------------------------------------------------------
+export const HEALTH_THRESHOLDS = {
+  ramPercent: { warning: 75, critical: 90 },
+  cpuLoadPercent: { warning: 75, critical: 90 }, // 1-min load average, normalised to 0-100% of core count
+  cpuTempC: { warning: 70, critical: 80 }
+};
+
+// A device is considered offline if it hasn't reported in this long -
+// three times the hub's own 60s report interval, so one missed/slow
+// write doesn't flash a false offline state.
+export const HEALTH_STALE_AFTER_MS = 3 * 60 * 1000;
+
+// Returns 'ok' | 'warning' | 'critical' | 'offline' for one device's
+// reported metrics. `reported` may be missing individual fields (not
+// every device reports every metric) - only fields that are present
+// are checked. `throttled` (Pi-specific, from vcgencmd) forces
+// 'critical' when true, regardless of other readings.
+export function evaluateHealthStatus(reported) {
+  if (!reported || !reported.lastSeen) return 'offline';
+  if (Date.now() - reported.lastSeen > HEALTH_STALE_AFTER_MS) return 'offline';
+  if (reported.throttled) return 'critical';
+
+  let worst = 'ok';
+  for (const [field, { warning, critical }] of Object.entries(HEALTH_THRESHOLDS)) {
+    const value = reported[field];
+    if (value === undefined || value === null) continue;
+    if (value >= critical) return 'critical';
+    if (value >= warning) worst = 'warning';
+  }
+  return worst;
 }
 
 // ---------------------------------------------------------------

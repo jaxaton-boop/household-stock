@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Device Health — Household Stock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Sign-in screen -->
+  <div class="auth-card" id="authCard">
+    <div class="eyebrow" style="text-align:left;margin-bottom:14px;">Household · Live list</div>
+    <h2 id="authTitle">Sign in to view the list</h2>
+    <p id="authSub">Enter the email and password you were given. Only invited household accounts can access this list.</p>
+    <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username">
+    <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="authBtn" type="button">Sign in</button>
+    <div class="error-msg" id="authError"></div>
+    <div class="auth-note"><a href="#" id="forgotPasswordLink" style="color:var(--paper-dim);">Forgot your password?</a></div>
+  </div>
+
+  <!-- Main app shell (shown once signed in) -->
+  <div class="app-shell hidden" id="appWrap">
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand">Household</div>
+      <div id="sidebarNav"></div>
+    </nav>
+
+    <div class="page-content">
+      <div class="wrap">
+        <header>
+          <div>
+            <div class="eyebrow">Household · Live list</div>
+            <h1>Device Health</h1>
+            <p class="sub" id="signedInAs"></p>
+          </div>
+          <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
+        </header>
+
+        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+
+        <p class="sub" style="margin:-4px 0 16px;font-size:12.5px;">
+          Status of the hardware running this system. Currently reporting: the central hub
+          (Raspberry Pi). As more devices (e.g. the Lights ESP32) start reporting their own
+          health, they'll appear here automatically — no page changes needed.
+        </p>
+
+        <div class="health-grid" id="healthGrid">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      rtdb, initAuthGate, evaluateHealthStatus, HEALTH_THRESHOLDS, HEALTH_STALE_AFTER_MS
+    } from "./app-shared.js";
+    import {
+      ref, onValue
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const gridEl = document.getElementById('healthGrid');
+
+    const STATUS_LABELS = { ok: 'Healthy', warning: 'Warning', critical: 'Critical', offline: 'Offline' };
+
+    const METRIC_DISPLAY = [
+      { field: 'ramPercent', label: 'RAM' },
+      { field: 'cpuLoadPercent', label: 'CPU' },
+      { field: 'cpuTempC', label: 'Temp', unit: '°C', max: 100 }
+    ];
+
+    function formatDuration(seconds) {
+      if (seconds === undefined || seconds === null) return '—';
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    }
+
+    function formatAgo(ms) {
+      if (!ms) return 'never';
+      const diffSec = Math.max(0, Math.round((Date.now() - ms) / 1000));
+      if (diffSec < 60) return `${diffSec}s ago`;
+      if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+      return `${Math.round(diffSec / 3600)}h ago`;
+    }
+
+    function metricRowHtml(field, label, unit, value) {
+      if (value === undefined || value === null) return '';
+      const thresholds = HEALTH_THRESHOLDS[field];
+      let barClass = '';
+      if (thresholds) {
+        if (value >= thresholds.critical) barClass = 'critical';
+        else if (value >= thresholds.warning) barClass = 'warning';
+      }
+      const pct = Math.max(0, Math.min(100, value));
+      const displayValue = unit ? `${Math.round(value)}${unit}` : `${Math.round(value)}%`;
+      return `
+        <div class="health-metric-row">
+          <span class="health-metric-label">${label}</span>
+          <span class="health-bar-track"><span class="health-bar-fill ${barClass}" style="width:${pct}%;"></span></span>
+          <span class="health-metric-value">${displayValue}</span>
+        </div>`;
+    }
+
+    function renderDeviceCard(deviceId, entry) {
+      const meta = entry.meta || {};
+      const reported = entry.reported || {};
+      const status = evaluateHealthStatus(reported);
+      const name = meta.name || deviceId;
+      const role = meta.role || meta.type || '';
+
+      const metricsHtml = METRIC_DISPLAY
+        .map(m => metricRowHtml(m.field, m.label, m.unit, reported[m.field]))
+        .join('');
+
+      const lastSeenStale = reported.lastSeen && (Date.now() - reported.lastSeen > HEALTH_STALE_AFTER_MS);
+      const uptimeText = reported.uptimeSeconds !== undefined ? ` · uptime ${formatDuration(reported.uptimeSeconds)}` : '';
+
+      return `
+        <div class="health-card ${status}" data-id="${deviceId}">
+          <div class="health-card-top">
+            <div>
+              <div class="health-name">${name}</div>
+              ${role ? `<div class="health-role">${role}</div>` : ''}
+            </div>
+            <span class="health-pill ${status}">${STATUS_LABELS[status] || status}</span>
+          </div>
+          ${metricsHtml ? `<div class="health-metrics">${metricsHtml}</div>` : ''}
+          <div class="health-footer ${lastSeenStale ? 'stale' : ''}">
+            Last reported: ${formatAgo(reported.lastSeen)}${uptimeText}
+          </div>
+        </div>`;
+    }
+
+    function startHealthListener() {
+      if (!rtdb) return;
+      const systemRef = ref(rtdb, 'system');
+      onValue(systemRef,
+        (snapshot) => {
+          statusDot.classList.remove('offline');
+          statusText.textContent = 'Live — connected';
+          const data = snapshot.val() || {};
+          const ids = Object.keys(data);
+          if (ids.length === 0) {
+            gridEl.innerHTML = `<div class="empty">No devices reporting yet — make sure the central hub's health_report service is running.</div>`;
+            return;
+          }
+          gridEl.innerHTML = ids.map(id => renderDeviceCard(id, data[id])).join('');
+        },
+        (err) => {
+          statusDot.classList.add('offline');
+          statusText.textContent = 'Connection error';
+          gridEl.innerHTML = err.code === 'PERMISSION_DENIED'
+            ? `<div class="empty">Your account isn't on the household allowlist yet — ask whoever set this up to add it.</div>`
+            : `<div class="empty">Error loading device health: ${err.message}</div>`;
+        }
+      );
+      // Re-render periodically so "last reported Xs ago" and the
+      // offline threshold stay current even with no new data arriving.
+      setInterval(() => {
+        onValue(systemRef, (snapshot) => {
+          const data = snapshot.val() || {};
+          const ids = Object.keys(data);
+          if (ids.length > 0) gridEl.innerHTML = ids.map(id => renderDeviceCard(id, data[id])).join('');
+        }, { onlyOnce: true });
+      }, 15000);
+    }
+
+    initAuthGate({ activePage: 'health.html', onSignedIn: startHealthListener });
+  </script>
+</body>
+</html>
