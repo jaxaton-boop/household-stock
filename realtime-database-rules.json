@@ -1,0 +1,21 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "allowlist": {
+      ".read": false,
+      ".write": false
+    },
+
+    "lights": {
+      ".read": "auth != null && root.child('allowlist').child(auth.token.email.replace('.', ',').replace('.', ',').replace('.', ',').replace('.', ',')).val() === true",
+      ".write": "auth != null && root.child('allowlist').child(auth.token.email.replace('.', ',').replace('.', ',').replace('.', ',').replace('.', ',')).val() === true"
+    },
+
+    "system": {
+      ".read": "auth != null && root.child('allowlist').child(auth.token.email.replace('.', ',').replace('.', ',').replace('.', ',').replace('.', ',')).val() === true",
+      ".write": "auth != null && root.child('allowlist').child(auth.token.email.replace('.', ',').replace('.', ',').replace('.', ',').replace('.', ',')).val() === true"
+    }
+  }
+}
