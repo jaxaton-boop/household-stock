@@ -1063,81 +1063,120 @@ input[type="range"].light-brightness::-moz-range-thumb {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
-.lc-preset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+/* Preset colour squares. The colour comes from --c on each button;
+   --tick is a readable tick colour for that square (set in lights.html). */
+.lc-preset-name {
+  margin-left: auto;
+  color: var(--paper-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
 }
-.lc-preset-btn {
+.lc-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.lc-swatch {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 9px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: var(--c);
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%, rgba(0, 0, 0, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-family: 'Inter', sans-serif;
-  font-size: 12.5px;
-  padding: 7px 9px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--paper);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  justify-content: center;
+  color: var(--tick);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
-.lc-preset-btn:hover { border-color: var(--accent); }
-.lc-preset-btn.active { border-color: var(--accent-bright); background: var(--accent-soft); font-weight: 500; }
-.lc-preset-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+.lc-swatch:hover { transform: translateY(-2px) scale(1.04); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18), 0 4px 10px rgba(0, 0, 0, 0.35); }
+.lc-swatch:active { transform: scale(0.96); }
+.lc-swatch:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+.lc-swatch-tick { opacity: 0; transform: scale(0.6); transition: opacity 0.12s ease, transform 0.12s ease; }
+.lc-swatch.active {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--paper), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
+.lc-swatch.active .lc-swatch-tick { opacity: 1; transform: scale(1); }
 
-.lc-sliders { display: flex; flex-direction: column; gap: 12px; }
-.lc-sliders .control-label { width: 84px; }
+/* Colour sliders: label + value on one line, a full-width slider below. */
+.lc-sliders { display: flex; flex-direction: column; gap: 14px; }
+.lc-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.lc-slider-head .control-label { width: auto; }
 
+/* --track and --thumb are set per slider by lights.html, so each track
+   shows the colours it controls and each thumb shows the chosen value. */
 input[type="range"].lc-range {
-  flex: 1;
-  min-width: 0;
+  --track: var(--surface-raised);
+  --thumb: #ffffff;
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin: 0;
   -webkit-appearance: none;
   appearance: none;
-  height: 8px;
-  background: var(--surface-raised);
-  border-radius: 999px;
-  outline: none;
+  background: transparent;
+  cursor: pointer;
   touch-action: none; /* stops the page scrolling mid-drag on phones */
 }
 input[type="range"].lc-range-hue {
-  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  --track: linear-gradient(to right,
+    hsl(0 100% 50%), hsl(30 100% 50%), hsl(60 100% 50%), hsl(90 100% 50%),
+    hsl(120 100% 50%), hsl(150 100% 50%), hsl(180 100% 50%), hsl(210 100% 50%),
+    hsl(240 100% 50%), hsl(270 100% 50%), hsl(300 100% 50%), hsl(330 100% 50%),
+    hsl(360 100% 50%));
 }
-input[type="range"].lc-range-bri {
-  background: linear-gradient(to right, #1a1a1a, #ffffff);
+input[type="range"].lc-range:focus { outline: none; }
+
+input[type="range"].lc-range::-webkit-slider-runnable-track {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--track);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25), inset 0 1px 2px rgba(0, 0, 0, 0.25);
 }
-input[type="range"].lc-range:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 3px; }
+input[type="range"].lc-range::-moz-range-track {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--track);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25), inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
 input[type="range"].lc-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 20px;
-  height: 20px;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  margin-top: -5px; /* centres the 24px thumb on the 14px track */
   border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid var(--surface);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
+  background: var(--thumb);
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s ease;
 }
 input[type="range"].lc-range::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid var(--surface);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
+  background: var(--thumb);
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s ease;
 }
+input[type="range"].lc-range:active::-webkit-slider-thumb { transform: scale(1.15); }
+input[type="range"].lc-range:active::-moz-range-thumb { transform: scale(1.15); }
+input[type="range"].lc-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-bright), 0 1px 4px rgba(0, 0, 0, 0.45); }
+input[type="range"].lc-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-bright), 0 1px 4px rgba(0, 0, 0, 0.45); }
+
 .lc-value {
-  width: 42px;
-  flex-shrink: 0;
-  text-align: right;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 12px;
   color: var(--paper-dim);
