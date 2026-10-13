@@ -237,11 +237,16 @@
         `;
       }).join('');
 
+      // Brightness sits on the card face, above the dropdown, so it's
+      // always to hand; colour lives inside the dropdown.
       return `
+        <div class="lc-slider lc-bri-row ${on ? '' : 'dimmed'}">
+          <div class="lc-slider-head"><span class="control-label">Brightness</span><span class="lc-value" data-value-for="brightness">${brightness}%</span></div>
+          <input type="range" class="lc-range" data-role="brightness" min="1" max="100" value="${brightness}" style="${st.brightness}" aria-label="Brightness for ${safeName}">
+        </div>
         <button type="button" class="lc-summary" data-role="expand" aria-expanded="${expanded}">
           <span class="lc-summary-swatch" style="background:${hex}"></span>
           <span class="lc-summary-label">Presets and custom</span>
-          <span class="lc-summary-meta">${on ? `${brightness}%` : 'Off'}</span>
           <svg class="lc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
         <div class="lc-panel ${expanded ? '' : 'hidden'} ${on ? '' : 'dimmed'}">
@@ -261,10 +266,6 @@
             <div class="lc-slider">
               <div class="lc-slider-head"><span class="control-label">Saturation</span><span class="lc-value" data-value-for="sat">${s}%</span></div>
               <input type="range" class="lc-range" data-role="sat" min="0" max="100" value="${s}" style="${st.sat}" aria-label="Saturation for ${safeName}">
-            </div>
-            <div class="lc-slider">
-              <div class="lc-slider-head"><span class="control-label">Brightness</span><span class="lc-value" data-value-for="brightness">${brightness}%</span></div>
-              <input type="range" class="lc-range" data-role="brightness" min="1" max="100" value="${brightness}" style="${st.brightness}" aria-label="Brightness for ${safeName}">
             </div>
           </div>
         </div>
@@ -306,10 +307,6 @@
         if (label) label.textContent = role === 'hue' ? `${e.target.value}°` : `${e.target.value}%`;
 
         applySliderStyles(card);
-        if (role === 'brightness') {
-          const meta = card.querySelector('.lc-summary-meta');
-          if (meta && meta.textContent !== 'Off') meta.textContent = `${e.target.value}%`;
-        }
       });
 
       // Preset caption: show the hovered/focused square's name, and fall
@@ -363,7 +360,7 @@
     const RENDER_RESUME_DELAY_MS = 250;
 
     document.addEventListener('pointerdown', (e) => {
-      if (e.target.closest?.('.lc-panel input[type="range"]')) {
+      if (e.target.closest?.('input[type="range"].lc-range')) {
         dragging = true;
         dragToken++;
       }

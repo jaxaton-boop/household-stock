@@ -989,6 +989,7 @@ input[type="range"].light-brightness::-moz-range-thumb {
    panel and "Assign lights" menu (which have their own solid
    background) keep the theme's normal text colours. */
 .group-card-colored > .light-card-top,
+.group-card-colored > .lc-bri-row,
 .group-card-colored > .lc-summary,
 .group-card-colored > .group-meta,
 .group-card-colored > .group-edit-row {
@@ -998,13 +999,18 @@ input[type="range"].light-brightness::-moz-range-thumb {
 }
 .group-card-colored > .group-edit-row { border-top-color: rgba(0, 0, 0, 0.18); }
 .group-card-colored > .lc-summary { border-color: rgba(0, 0, 0, 0.18); }
+.group-card-colored > .lc-summary .lc-summary-swatch { box-shadow: 0 0 0 2px var(--tint-paper); }
 
 /* ---------- Lights page: "Presets and custom" dropdown ----------
    Replaced the native colour picker popup (2026-10-13), which kept
    closing because live updates rebuild the cards. */
+/* Always-visible brightness slider on the card face, above the dropdown. */
+.lc-bri-row { margin-top: 14px; transition: opacity 0.15s ease; }
+.lc-bri-row.dimmed { opacity: 0.5; }
+
 .lc-summary {
   width: 100%;
-  margin-top: 14px;
+  margin-top: 12px;
   display: flex;
   align-items: center;
   gap: 10px;
