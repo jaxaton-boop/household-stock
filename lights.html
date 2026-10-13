@@ -73,7 +73,7 @@
   <script type="module">
     import {
       auth, rtdb, escapeHtml, initAuthGate,
-      writeLightDesired, rgbToHex, hexToRgb, pickTextColors
+      writeLightDesired, rgbToHex, pickTextColors
     } from "./app-shared.js";
     import {
       ref, onValue, update, remove, push, set, serverTimestamp
@@ -110,7 +110,255 @@
     });
 
     // ============================================================
-    // Individual lights (unchanged behaviour from before Groups existed)
+    // "Presets and custom" dropdown - shared by light and group cards
+    //
+    // This replaced the native <input type="color"> picker (2026-10-13).
+    // That picker is a browser popup attached to its input element, and
+    // both grids are rebuilt with innerHTML on every RTDB update - which
+    // arrive constantly, because the ESP32 writes "reported" back after
+    // every change. Each rebuild destroyed the input, so the popup closed
+    // a moment after opening, or as soon as you picked anything (your
+    // own write -> echo -> rebuild).
+    //
+    // The dropdown lives inside the card, so it survives rebuilds by:
+    //   1. remembering which cards are expanded (expandedCards), and
+    //   2. holding back rebuilds while a slider is being dragged
+    //      (requestRender / drag tracking below), then catching up.
+    // ============================================================
+
+    // Preset scenes. Tapping one also turns the light/group on.
+    // Edit freely - name, colour (0-255) and brightness (1-100).
+    const PRESETS = [
+      { name: 'Warm white',  r: 255, g: 180, b: 107, brightness: 80 },
+      { name: 'Soft white',  r: 255, g: 214, b: 170, brightness: 90 },
+      { name: 'Daylight',    r: 240, g: 245, b: 255, brightness: 100 },
+      { name: 'Reading',     r: 255, g: 228, b: 196, brightness: 100 },
+      { name: 'Relax',       r: 255, g: 150, b: 60,  brightness: 45 },
+      { name: 'Night light', r: 255, g: 110, b: 30,  brightness: 10 },
+      { name: 'Red',         r: 255, g: 0,   b: 0,   brightness: 100 },
+      { name: 'Ocean',       r: 0,   g: 120, b: 255, brightness: 100 },
+      { name: 'Forest',      r: 40,  g: 200, b: 80,  brightness: 100 },
+      { name: 'Purple',      r: 150, g: 60,  b: 255, brightness: 100 }
+    ];
+
+    // Which cards have the dropdown open, keyed "light:<id>" / "group:<id>".
+    // A Set so several can be open at once.
+    const expandedCards = new Set();
+    const cardKey = (kind, id) => `${kind}:${id}`;
+
+    // Hue/saturation <-> RGB. Value is fixed at full: brightness is its
+    // own control, so the colour sliders only pick the colour itself.
+    function hsToRgb(h, s) {
+      const c = s / 100;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = 1 - c;
+      let r1, g1, b1;
+      if (h < 60)       [r1, g1, b1] = [c, x, 0];
+      else if (h < 120) [r1, g1, b1] = [x, c, 0];
+      else if (h < 180) [r1, g1, b1] = [0, c, x];
+      else if (h < 240) [r1, g1, b1] = [0, x, c];
+      else if (h < 300) [r1, g1, b1] = [x, 0, c];
+      else              [r1, g1, b1] = [c, 0, x];
+      return {
+        r: Math.round((r1 + m) * 255),
+        g: Math.round((g1 + m) * 255),
+        b: Math.round((b1 + m) * 255)
+      };
+    }
+
+    function rgbToHs(r, g, b) {
+      const rn = r / 255, gn = g / 255, bn = b / 255;
+      const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+      const d = max - min;
+      let h = 0;
+      if (d !== 0) {
+        if (max === rn) h = 60 * (((gn - bn) / d) % 6);
+        else if (max === gn) h = 60 * ((bn - rn) / d + 2);
+        else h = 60 * ((rn - gn) / d + 4);
+      }
+      if (h < 0) h += 360;
+      const s = max === 0 ? 0 : d / max;
+      return { h: Math.round(h) % 360, s: Math.round(s * 100) };
+    }
+
+    const satTrack = (h) => `linear-gradient(to right, #ffffff, hsl(${h} 100% 50%))`;
+
+    // The collapsed summary button plus the expandable panel. Used inside
+    // both light cards and group cards.
+    function presetsAndCustomHtml(kind, id, name, { on, brightness, r, g, b }) {
+      const expanded = expandedCards.has(cardKey(kind, id));
+      const hex = rgbToHex(r, g, b);
+      const { h, s } = rgbToHs(r, g, b);
+      const safeName = escapeHtml(name);
+
+      const presetButtons = PRESETS.map((p, i) => {
+        const active = p.r === r && p.g === g && p.b === b && p.brightness === brightness;
+        return `
+          <button type="button" class="lc-preset-btn ${active ? 'active' : ''}" data-role="preset" data-preset="${i}">
+            <span class="lc-preset-dot" style="background:${rgbToHex(p.r, p.g, p.b)}"></span>
+            <span>${escapeHtml(p.name)}</span>
+          </button>
+        `;
+      }).join('');
+
+      return `
+        <button type="button" class="lc-summary" data-role="expand" aria-expanded="${expanded}">
+          <span class="lc-summary-swatch" style="background:${hex}"></span>
+          <span class="lc-summary-label">Presets and custom</span>
+          <span class="lc-summary-meta">${on ? `${brightness}%` : 'Off'}</span>
+          <svg class="lc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="lc-panel ${expanded ? '' : 'hidden'} ${on ? '' : 'dimmed'}">
+          <div class="lc-section-label">Presets</div>
+          <div class="lc-preset-grid">${presetButtons}</div>
+
+          <div class="lc-section-label lc-section-label-custom">
+            Custom <span class="lc-preview" style="background:${hex}"></span>
+          </div>
+          <div class="lc-sliders">
+            <div class="control-row">
+              <span class="control-label">Hue</span>
+              <input type="range" class="lc-range lc-range-hue" data-role="hue" min="0" max="359" value="${h}" aria-label="Hue for ${safeName}">
+              <span class="lc-value" data-value-for="hue">${h}°</span>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Saturation</span>
+              <input type="range" class="lc-range lc-range-sat" data-role="sat" min="0" max="100" value="${s}" style="background:${satTrack(h)}" aria-label="Saturation for ${safeName}">
+              <span class="lc-value" data-value-for="sat">${s}%</span>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Brightness</span>
+              <input type="range" class="lc-range lc-range-bri" data-role="brightness" min="1" max="100" value="${brightness}" aria-label="Brightness for ${safeName}">
+              <span class="lc-value" data-value-for="brightness">${brightness}%</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Wires the dropdown's controls on one grid. onWrite(id, patch) is
+    // writeDesired for lights or writeGroupDesired for groups.
+    function wirePresetsAndCustom(grid, kind, onWrite) {
+      grid.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-role="expand"], [data-role="preset"]');
+        if (!btn) return;
+        const card = btn.closest('.light-card[data-id]');
+        if (!card) return;
+        const id = card.dataset.id;
+
+        if (btn.dataset.role === 'expand') {
+          const key = cardKey(kind, id);
+          const nowOpen = !expandedCards.has(key);
+          if (nowOpen) expandedCards.add(key); else expandedCards.delete(key);
+          // Toggle in place - no rebuild needed just to open/close.
+          btn.setAttribute('aria-expanded', String(nowOpen));
+          card.querySelector('.lc-panel')?.classList.toggle('hidden', !nowOpen);
+          return;
+        }
+
+        const p = PRESETS[Number(btn.dataset.preset)];
+        if (p) onWrite(id, { on: true, r: p.r, g: p.g, b: p.b, brightness: p.brightness });
+      });
+
+      // While dragging: update labels and previews only (no writes).
+      grid.addEventListener('input', (e) => {
+        const role = e.target.dataset?.role;
+        if (role !== 'hue' && role !== 'sat' && role !== 'brightness') return;
+        const card = e.target.closest('.light-card[data-id]');
+        if (!card) return;
+
+        const label = card.querySelector(`[data-value-for="${role}"]`);
+        if (label) label.textContent = role === 'hue' ? `${e.target.value}°` : `${e.target.value}%`;
+
+        if (role === 'hue' || role === 'sat') {
+          const h = Number(card.querySelector('[data-role="hue"]').value);
+          const s = Number(card.querySelector('[data-role="sat"]').value);
+          const hex = (({ r, g, b }) => rgbToHex(r, g, b))(hsToRgb(h, s));
+          const satInput = card.querySelector('[data-role="sat"]');
+          if (role === 'hue' && satInput) satInput.style.background = satTrack(h);
+          card.querySelectorAll('.lc-preview, .lc-summary-swatch').forEach(el => { el.style.background = hex; });
+        } else {
+          const meta = card.querySelector('.lc-summary-meta');
+          if (meta && meta.textContent !== 'Off') meta.textContent = `${e.target.value}%`;
+        }
+      });
+
+      // On release: one write per change, same as the old controls
+      // (keeps RTDB bandwidth down - see README "Known limitations").
+      grid.addEventListener('change', (e) => {
+        const role = e.target.dataset?.role;
+        if (role !== 'hue' && role !== 'sat' && role !== 'brightness') return;
+        const card = e.target.closest('.light-card[data-id]');
+        if (!card) return;
+        const id = card.dataset.id;
+
+        if (role === 'brightness') {
+          onWrite(id, { brightness: Number(e.target.value) });
+        } else {
+          const h = Number(card.querySelector('[data-role="hue"]').value);
+          const s = Number(card.querySelector('[data-role="sat"]').value);
+          onWrite(id, hsToRgb(h, s));
+        }
+      });
+    }
+
+    // ------------------------------------------------------------
+    // Render guard: never rebuild a grid mid-drag.
+    // A rebuild during a drag would yank the slider out from under
+    // your finger. Incoming updates are held while a pointer is down
+    // on a slider, then applied shortly after release (the delay lets
+    // the slider's own "change" event fire and write first).
+    // ------------------------------------------------------------
+    let dragging = false;
+    let dragToken = 0;
+    const pendingRenders = new Set();
+    const RENDER_RESUME_DELAY_MS = 250;
+
+    document.addEventListener('pointerdown', (e) => {
+      if (e.target.closest?.('.lc-panel input[type="range"]')) {
+        dragging = true;
+        dragToken++;
+      }
+    }, true);
+
+    function endDrag() {
+      if (!dragging) return;
+      const token = dragToken;
+      setTimeout(() => {
+        if (token !== dragToken) return; // a new drag started in the meantime
+        dragging = false;
+        const queued = [...pendingRenders];
+        pendingRenders.clear();
+        queued.forEach(requestRender);
+      }, RENDER_RESUME_DELAY_MS);
+    }
+    window.addEventListener('pointerup', endDrag, true);
+    window.addEventListener('pointercancel', endDrag, true);
+
+    function requestRender(which) {
+      if (dragging) { pendingRenders.add(which); return; }
+      if (which === 'lights') renderLightsNow();
+      else renderGroupsNow();
+    }
+
+    // Rebuilds a grid but puts keyboard focus back on the same control
+    // afterwards, so arrow-key adjustments aren't interrupted either.
+    function rebuildKeepingFocus(container, html) {
+      const active = document.activeElement;
+      let selector = null;
+      if (active && container.contains(active) && active.dataset?.role) {
+        const card = active.closest('.light-card[data-id]');
+        if (card) {
+          selector = `.light-card[data-id="${CSS.escape(card.dataset.id)}"] [data-role="${active.dataset.role}"]`;
+          if (active.dataset.preset !== undefined) selector += `[data-preset="${active.dataset.preset}"]`;
+        }
+      }
+      container.innerHTML = html;
+      if (selector) container.querySelector(selector)?.focus({ preventScroll: true });
+    }
+
+    // ============================================================
+    // Individual lights
     // ============================================================
     const gridEl = document.getElementById('lightsGrid');
     let lightsData = {}; // kept around so the Groups tab can show light names in "Assign lights"
@@ -129,8 +377,8 @@
           statusDot.classList.remove('offline');
           statusText.textContent = 'Live — connected';
           lightsData = snapshot.val() || {};
-          render(lightsData);
-          renderGroups(); // keep "Assign lights" names/availability in sync
+          requestRender('lights');
+          requestRender('groups'); // keep "Assign lights" names/availability in sync
           checkPendingGroupApplications();
         },
         (err) => {
@@ -142,37 +390,19 @@
             : `Error loading lights: ${err.message}`;
         }
       );
-
-      // Event delegation: one set of listeners for every light card,
-      // including ones that arrive later over the live sync.
-      gridEl.addEventListener('change', (e) => {
-        const card = e.target.closest('.light-card');
-        if (!card) return;
-        const hueId = card.dataset.id;
-
-        if (e.target.classList.contains('light-toggle')) {
-          writeDesired(hueId, { on: e.target.checked });
-        } else if (e.target.classList.contains('light-color')) {
-          const { r, g, b } = hexToRgb(e.target.value);
-          writeDesired(hueId, { r, g, b });
-        } else if (e.target.classList.contains('light-brightness')) {
-          writeDesired(hueId, { brightness: Number(e.target.value) });
-        }
-      });
-
-      // Live-update the "%" label while dragging, without writing on every pixel.
-      gridEl.addEventListener('input', (e) => {
-        if (!e.target.classList.contains('light-brightness')) return;
-        const card = e.target.closest('.light-card');
-        const label = card?.querySelector('.brightness-value');
-        if (label) label.textContent = `${e.target.value}%`;
-      });
     }
+
+    // On/off switch (the dropdown's controls are wired separately below).
+    gridEl.addEventListener('change', (e) => {
+      if (!e.target.classList.contains('light-toggle')) return;
+      const card = e.target.closest('.light-card[data-id]');
+      if (card) writeDesired(card.dataset.id, { on: e.target.checked });
+    });
+    wirePresetsAndCustom(gridEl, 'light', writeDesired);
 
     // writeDesired wraps the shared writeLightDesired helper (from
     // app-shared.js) purely to surface a page-local error message on
-    // failure - the write itself, and the "groups fan this out to each
-    // member light" behaviour, are identical to before.
+    // failure.
     function writeDesired(hueId, patch) {
       errorMsg.textContent = '';
       writeLightDesired(hueId, patch).catch(() => {
@@ -180,7 +410,8 @@
       });
     }
 
-    function render(lightsObj) {
+    function renderLightsNow() {
+      const lightsObj = lightsData;
       const ids = Object.keys(lightsObj);
       if (ids.length === 0) {
         gridEl.innerHTML = `<div class="empty">No lights found yet — make sure the ESP32 controller is powered on and connected.</div>`;
@@ -193,19 +424,20 @@
         return nameA.localeCompare(nameB);
       });
 
-      gridEl.innerHTML = ids.map(id => {
+      const html = ids.map(id => {
         const light = lightsObj[id] || {};
         const meta = light.meta || {};
         const desired = light.desired || {};
         const reported = light.reported || {};
 
         const name = meta.name || `Light ${id}`;
-        const on = desired.on ?? false;
-        const brightness = desired.brightness ?? 100;
-        const r = desired.r ?? 255;
-        const g = desired.g ?? 255;
-        const b = desired.b ?? 255;
-        const hex = rgbToHex(r, g, b);
+        const state = {
+          on: desired.on ?? false,
+          brightness: desired.brightness ?? 100,
+          r: desired.r ?? 255,
+          g: desired.g ?? 255,
+          b: desired.b ?? 255
+        };
         const statusLine = reportedStatusLine(desired, reported);
         const statusIsError = reported.commError === true;
 
@@ -214,25 +446,17 @@
             <div class="light-card-top">
               <div class="light-name">${escapeHtml(name)}</div>
               <label class="switch">
-                <input type="checkbox" class="light-toggle" ${on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
+                <input type="checkbox" class="light-toggle" data-role="power" ${state.on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
                 <span class="slider-track"></span>
               </label>
             </div>
-            <div class="light-controls ${on ? '' : 'dimmed'}">
-              <div class="control-row">
-                <span class="control-label">Colour</span>
-                <input type="color" class="light-color" value="${hex}" aria-label="Colour for ${escapeHtml(name)}">
-              </div>
-              <div class="control-row">
-                <span class="control-label">Brightness</span>
-                <input type="range" class="light-brightness" min="1" max="100" value="${brightness}" aria-label="Brightness for ${escapeHtml(name)}">
-                <span class="brightness-value">${brightness}%</span>
-              </div>
-            </div>
+            ${presetsAndCustomHtml('light', id, name, state)}
             <div class="light-status ${statusIsError ? 'error' : ''}">${escapeHtml(statusLine)}</div>
           </div>
         `;
       }).join('');
+
+      rebuildKeepingFocus(gridEl, html);
     }
 
     function reportedStatusLine(desired, reported) {
@@ -245,9 +469,6 @@
         && reported.b === (desired.b ?? 255);
       return matches ? 'Applied' : 'Applying…';
     }
-
-    // rgbToHex, hexToRgb, and pickTextColors now come from app-shared.js
-    // so the Home page's boxes can render colour exactly the same way.
 
     // ============================================================
     // Groups (rooms/areas made of one or more lights)
@@ -281,7 +502,7 @@
       onValue(groupsRef,
         (snapshot) => {
           groupsData = snapshot.val() || {};
-          renderGroups();
+          requestRender('groups');
         },
         (err) => {
           errorMsg.textContent = err.code === 'PERMISSION_DENIED'
@@ -296,7 +517,7 @@
       editLayoutBtn.textContent = editMode ? 'Done editing' : 'Edit layout';
       editLayoutBtn.classList.toggle('active', editMode);
       if (!editMode) { addingGroup = false; openAssignMenuId = null; }
-      renderGroups();
+      renderGroupsNow();
     });
 
     function writeGroupDesired(groupId, patch) {
@@ -320,10 +541,9 @@
       memberIds.forEach(lightId => writeDesired(lightId, patch));
 
       // Watch for confirmation that this change actually reached every
-      // contactable light (see checkPendingGroupApplications, called
-      // whenever fresh /lights data - including "reported" - arrives).
-      // A later change to the same group overwrites this entry, so only
-      // the final settled state gets a toast, not every intermediate one.
+      // contactable light (see checkPendingGroupApplications). A later
+      // change to the same group overwrites this entry, so only the
+      // final settled state gets a toast.
       if (memberIds.length > 0) {
         pendingGroupApplications.set(groupId, { target, memberIds, startedAt: Date.now() });
       }
@@ -331,11 +551,7 @@
 
     // Fires the "applied" toast once every member light of a pending
     // group change has either matched the target state or reported it
-    // can't be reached (commError) - a light in error is excluded from
-    // the count rather than blocking the toast forever, since "applied
-    // to all contactable lights" is the bar, not "every light that
-    // exists". Lights that haven't reported anything yet keep the group
-    // pending until they do (or until GROUP_APPLY_GIVE_UP_MS passes).
+    // can't be reached (commError).
     function checkPendingGroupApplications() {
       const now = Date.now();
       for (const [groupId, pending] of pendingGroupApplications.entries()) {
@@ -374,9 +590,15 @@
       }
     }
 
-    function renderGroups() {
+    function renderGroupsNow() {
       const ids = Object.keys(groupsData);
       ids.sort((a, b) => (groupsData[a]?.name || '').localeCompare(groupsData[b]?.name || ''));
+
+      // A rebuild would also wipe a half-typed new group name, so carry
+      // it (and whether it had focus) across.
+      const nameInput = document.getElementById('newGroupNameInput');
+      const typedName = nameInput?.value ?? '';
+      const nameHadFocus = nameInput && document.activeElement === nameInput;
 
       let html = '';
       if (ids.length === 0 && !editMode) {
@@ -387,20 +609,28 @@
       if (editMode) {
         html += addGroupTileHtml();
       }
-      groupsGrid.innerHTML = html;
+      rebuildKeepingFocus(groupsGrid, html);
 
       if (addingGroup) {
-        document.getElementById('newGroupNameInput')?.focus();
+        const newInput = document.getElementById('newGroupNameInput');
+        if (newInput) {
+          newInput.value = typedName;
+          if (nameHadFocus || !nameInput) newInput.focus();
+        }
       }
     }
 
     function groupCardHtml(id, group) {
       const name = group.name || 'Unnamed group';
       const desired = group.desired || {};
-      const on = desired.on ?? false;
-      const brightness = desired.brightness ?? 100;
-      const r = desired.r ?? 255, g = desired.g ?? 255, b = desired.b ?? 255;
-      const hex = rgbToHex(r, g, b);
+      const state = {
+        on: desired.on ?? false,
+        brightness: desired.brightness ?? 100,
+        r: desired.r ?? 255,
+        g: desired.g ?? 255,
+        b: desired.b ?? 255
+      };
+      const hex = rgbToHex(state.r, state.g, state.b);
       const memberIds = Object.keys(group.lightIds || {});
       const metaText = memberIds.length === 0
         ? 'No lights assigned yet'
@@ -417,17 +647,16 @@
         </div>
       ` : '';
 
-      // Shade the card with the group's own colour when it's on, so the
-      // box gives an at-a-glance sense of what the room currently looks
-      // like. --paper/--paper-dim are overridden right here rather than
-      // via a new CSS class, so every descendant that already reads
-      // those variables (name, labels, meta text) picks up a readable
-      // colour automatically without needing per-element rules.
+      // Shade the card with the group's own colour when it's on. The
+      // readable text colours go in --tint-* variables, which styles.css
+      // applies only to the parts sitting directly on the coloured
+      // background - the dropdown panel and assign menu keep the theme's
+      // normal colours, since they have their own solid background.
       let cardStyle = '';
       let cardClass = 'light-card group-card';
-      if (on) {
-        const { paper, paperDim } = pickTextColors(r, g, b);
-        cardStyle = ` style="background-color: ${hex}; --paper: ${paper}; --paper-dim: ${paperDim};"`;
+      if (state.on) {
+        const { paper, paperDim } = pickTextColors(state.r, state.g, state.b);
+        cardStyle = ` style="background-color: ${hex}; --tint-paper: ${paper}; --tint-paper-dim: ${paperDim};"`;
         cardClass += ' group-card-colored';
       }
 
@@ -436,21 +665,11 @@
           <div class="light-card-top">
             <div class="light-name">${escapeHtml(name)}</div>
             <label class="switch">
-              <input type="checkbox" class="light-toggle group-toggle" ${on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
+              <input type="checkbox" class="light-toggle group-toggle" data-role="power" ${state.on ? 'checked' : ''} aria-label="Turn ${escapeHtml(name)} on or off">
               <span class="slider-track"></span>
             </label>
           </div>
-          <div class="light-controls ${on ? '' : 'dimmed'}">
-            <div class="control-row">
-              <span class="control-label">Colour</span>
-              <input type="color" class="light-color group-color" value="${hex}" aria-label="Colour for ${escapeHtml(name)}">
-            </div>
-            <div class="control-row">
-              <span class="control-label">Brightness</span>
-              <input type="range" class="light-brightness group-brightness" min="1" max="100" value="${brightness}" aria-label="Brightness for ${escapeHtml(name)}">
-              <span class="brightness-value">${brightness}%</span>
-            </div>
-          </div>
+          ${presetsAndCustomHtml('group', id, name, state)}
           <div class="group-meta">${escapeHtml(metaText)}</div>
           ${editRow}
         </div>
@@ -503,7 +722,7 @@
           createdAt: serverTimestamp()
         });
         addingGroup = false;
-        renderGroups();
+        renderGroupsNow();
       } catch (err) {
         errorMsg.textContent = 'Could not create that group — check your connection and try again.';
       }
@@ -512,7 +731,7 @@
     groupsGrid.addEventListener('click', async (e) => {
       if (e.target.closest('#addGroupTile')) {
         addingGroup = true;
-        renderGroups();
+        renderGroupsNow();
         return;
       }
       if (e.target.closest('#createGroupBtn')) {
@@ -521,7 +740,7 @@
       }
       if (e.target.closest('#cancelGroupBtn')) {
         addingGroup = false;
-        renderGroups();
+        renderGroupsNow();
         return;
       }
 
@@ -535,6 +754,7 @@
           try {
             await remove(ref(rtdb, `groups/${groupId}`));
             if (openAssignMenuId === groupId) openAssignMenuId = null;
+            expandedCards.delete(cardKey('group', groupId));
           } catch (err) {
             errorMsg.textContent = 'Could not delete that group — check your connection and try again.';
           }
@@ -544,11 +764,13 @@
 
       if (e.target.classList.contains('assign-lights-btn')) {
         openAssignMenuId = (openAssignMenuId === groupId) ? null : groupId;
-        renderGroups();
+        renderGroupsNow();
         return;
       }
     });
 
+    // On/off switch and "Assign lights" checkboxes (the dropdown's
+    // controls are wired separately below).
     groupsGrid.addEventListener('change', (e) => {
       const card = e.target.closest('.group-card');
       if (!card) return;
@@ -556,11 +778,6 @@
 
       if (e.target.classList.contains('group-toggle')) {
         writeGroupDesired(groupId, { on: e.target.checked });
-      } else if (e.target.classList.contains('group-color')) {
-        const { r, g, b } = hexToRgb(e.target.value);
-        writeGroupDesired(groupId, { r, g, b });
-      } else if (e.target.classList.contains('group-brightness')) {
-        writeGroupDesired(groupId, { brightness: Number(e.target.value) });
       } else if (e.target.classList.contains('assign-light-checkbox')) {
         const lightId = e.target.dataset.lightId;
         const writeFn = e.target.checked
@@ -571,14 +788,7 @@
         });
       }
     });
-
-    // Live-update the "%" label while dragging a group's brightness slider.
-    groupsGrid.addEventListener('input', (e) => {
-      if (!e.target.classList.contains('group-brightness')) return;
-      const card = e.target.closest('.group-card');
-      const label = card?.querySelector('.brightness-value');
-      if (label) label.textContent = `${e.target.value}%`;
-    });
+    wirePresetsAndCustom(groupsGrid, 'group', writeGroupDesired);
 
     // ============================================================
     // Auth gate: start both listeners once signed in

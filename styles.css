@@ -983,6 +983,166 @@ input[type="range"].light-brightness::-moz-range-thumb {
    background colour rather than as this site's usual card signature. */
 .group-card-colored::before { display: none; }
 
+/* Readable text on a colour-shaded group card. lights.html sets
+   --tint-paper/--tint-paper-dim on the card; they're applied only to the
+   parts that sit directly on the coloured background, so the dropdown
+   panel and "Assign lights" menu (which have their own solid
+   background) keep the theme's normal text colours. */
+.group-card-colored > .light-card-top,
+.group-card-colored > .lc-summary,
+.group-card-colored > .group-meta,
+.group-card-colored > .group-edit-row {
+  --paper: var(--tint-paper);
+  --paper-dim: var(--tint-paper-dim);
+  color: var(--paper);
+}
+.group-card-colored > .group-edit-row { border-top-color: rgba(0, 0, 0, 0.18); }
+.group-card-colored > .lc-summary { border-color: rgba(0, 0, 0, 0.18); }
+
+/* ---------- Lights page: "Presets and custom" dropdown ----------
+   Replaced the native colour picker popup (2026-10-13), which kept
+   closing because live updates rebuild the cards. */
+.lc-summary {
+  width: 100%;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--paper);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: left;
+}
+.lc-summary:hover { border-color: var(--paper-dim); }
+.lc-summary:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
+.lc-summary-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.lc-summary-label { flex: 1; text-transform: uppercase; }
+.lc-summary-meta { color: var(--paper-dim); }
+.lc-chevron { flex-shrink: 0; color: var(--paper-dim); transition: transform 0.15s ease; }
+.lc-summary[aria-expanded="true"] .lc-chevron { transform: rotate(180deg); }
+
+.lc-panel {
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+  color: var(--paper);
+  transition: opacity 0.15s ease;
+}
+.lc-panel.dimmed { opacity: 0.55; }
+
+.lc-section-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-bright);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lc-section-label-custom { margin-top: 16px; }
+.lc-preview {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.lc-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.lc-preset-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--paper);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.lc-preset-btn:hover { border-color: var(--accent); }
+.lc-preset-btn.active { border-color: var(--accent-bright); background: var(--accent-soft); font-weight: 500; }
+.lc-preset-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.lc-sliders { display: flex; flex-direction: column; gap: 12px; }
+.lc-sliders .control-label { width: 84px; }
+
+input[type="range"].lc-range {
+  flex: 1;
+  min-width: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  background: var(--surface-raised);
+  border-radius: 999px;
+  outline: none;
+  touch-action: none; /* stops the page scrolling mid-drag on phones */
+}
+input[type="range"].lc-range-hue {
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+input[type="range"].lc-range-bri {
+  background: linear-gradient(to right, #1a1a1a, #ffffff);
+}
+input[type="range"].lc-range:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 3px; }
+input[type="range"].lc-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+input[type="range"].lc-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.lc-value {
+  width: 42px;
+  flex-shrink: 0;
+  text-align: right;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--paper-dim);
+}
+
 /* ---------- Toast (short confirmation banner) ---------- */
 .toast {
   position: fixed;
