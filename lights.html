@@ -141,6 +141,26 @@
       { name: 'Purple',      r: 150, g: 60,  b: 255, brightness: 100 }
     ];
 
+    // Animated presets. These run ON THE ESP32 controller itself, not in
+    // the browser: tapping one writes desired.effect once, and the ESP32
+    // animates the bulbs locally over Ethernet - no further Firebase
+    // traffic while it runs. `effect` is the value written to
+    // desired.effect ("none" = static colour). A slot with effect: null
+    // hasn't been built yet and shows a pink/black "missing" checkerboard.
+    const ANIMATED_PRESETS = [
+      { effect: 'hue_cycle', name: 'Colour cycle', swatchClass: 'lc-swatch-rainbow' },
+      { effect: null, name: 'Not set up yet' },
+      { effect: null, name: 'Not set up yet' },
+      { effect: null, name: 'Not set up yet' },
+      { effect: null, name: 'Not set up yet' }
+    ];
+    const isAnimated = (effect) => !!effect && effect !== 'none';
+
+    // Keeps CSS animations in step across re-renders: every rebuild would
+    // otherwise restart them from 0. A negative delay derived from the
+    // wall clock puts each fresh element at the same point in its loop.
+    const phaseDelay = (periodMs) => `-${((Date.now() % periodMs) / 1000).toFixed(2)}s`;
+
     // Which cards have the dropdown open, keyed "light:<id>" / "group:<id>".
     // A Set so several can be open at once.
     const expandedCards = new Set();
@@ -214,7 +234,7 @@
 
     // The collapsed summary button plus the expandable panel. Used inside
     // both light cards and group cards.
-    function presetsAndCustomHtml(kind, id, name, { on, brightness, r, g, b }) {
+    function presetsAndCustomHtml(kind, id, name, { on, brightness, r, g, b, effect = 'none' }) {
       const expanded = expandedCards.has(cardKey(kind, id));
       const hex = rgbToHex(r, g, b);
       const { h, s } = rgbToHs(r, g, b);
@@ -225,7 +245,7 @@
       // next to "Presets" on hover/focus, and as a tooltip.
       let activeName = '';
       const presetTiles = PRESETS.map((p, i) => {
-        const active = p.r === r && p.g === g && p.b === b && p.brightness === brightness;
+        const active = !isAnimated(effect) && p.r === r && p.g === g && p.b === b && p.brightness === brightness;
         if (active) activeName = p.name;
         const tick = pickTextColors(p.r, p.g, p.b).paper;
         return `
@@ -237,6 +257,28 @@
         `;
       }).join('');
 
+      const animTiles = ANIMATED_PRESETS.map(p => {
+        if (!p.effect) {
+          return `
+            <button type="button" class="lc-swatch lc-swatch-missing" data-name="${escapeHtml(p.name)}"
+              title="${escapeHtml(p.name)}" aria-label="Empty animated preset slot" aria-disabled="true" tabindex="-1"></button>
+          `;
+        }
+        const active = effect === p.effect;
+        if (active) activeName = p.name;
+        return `
+          <button type="button" class="lc-swatch ${p.swatchClass} ${active ? 'active' : ''}" data-role="anim-preset" data-effect="${p.effect}"
+            data-name="${escapeHtml(p.name)}" title="${escapeHtml(p.name)}" aria-label="${escapeHtml(p.name)} animated preset"
+            aria-pressed="${active}" style="--tick: #ffffff; animation-delay: ${phaseDelay(20000)};">
+            <svg class="lc-swatch-tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12.5 10 17.5 19 7"/></svg>
+          </button>
+        `;
+      }).join('');
+
+      const summarySwatch = isAnimated(effect)
+        ? `<span class="lc-summary-swatch lc-swatch-rainbow"></span>`
+        : `<span class="lc-summary-swatch" style="background:${hex}"></span>`;
+
       // Brightness sits on the card face, above the dropdown, so it's
       // always to hand; colour lives inside the dropdown.
       return `
@@ -245,7 +287,7 @@
           <input type="range" class="lc-range" data-role="brightness" min="1" max="100" value="${brightness}" style="${st.brightness}" aria-label="Brightness for ${safeName}">
         </div>
         <button type="button" class="lc-summary" data-role="expand" aria-expanded="${expanded}">
-          <span class="lc-summary-swatch" style="background:${hex}"></span>
+          ${summarySwatch}
           <span class="lc-summary-label">Presets and custom</span>
           <svg class="lc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
@@ -254,6 +296,10 @@
             Presets <span class="lc-preset-name" data-active-name="${escapeHtml(activeName)}">${escapeHtml(activeName)}</span>
           </div>
           <div class="lc-swatch-grid">${presetTiles}</div>
+          <fieldset class="lc-anim-box">
+            <legend>Animated presets</legend>
+            <div class="lc-swatch-grid">${animTiles}</div>
+          </fieldset>
 
           <div class="lc-section-label lc-section-label-custom">
             Custom <span class="lc-preview" style="background:${hex}"></span>
@@ -276,7 +322,7 @@
     // writeDesired for lights or writeGroupDesired for groups.
     function wirePresetsAndCustom(grid, kind, onWrite) {
       grid.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-role="expand"], [data-role="preset"]');
+        const btn = e.target.closest('[data-role="expand"], [data-role="preset"], [data-role="anim-preset"]');
         if (!btn) return;
         const card = btn.closest('.light-card[data-id]');
         if (!card) return;
@@ -292,8 +338,16 @@
           return;
         }
 
+        // Animated preset: just switch the effect on (and the light on).
+        // Colour and brightness stay as they are - the ESP32 animates from there.
+        if (btn.dataset.role === 'anim-preset') {
+          onWrite(id, { on: true, effect: btn.dataset.effect });
+          return;
+        }
+
+        // Static preset - also stops any running animation.
         const p = PRESETS[Number(btn.dataset.preset)];
-        if (p) onWrite(id, { on: true, r: p.r, g: p.g, b: p.b, brightness: p.brightness });
+        if (p) onWrite(id, { on: true, r: p.r, g: p.g, b: p.b, brightness: p.brightness, effect: 'none' });
       });
 
       // While dragging: update labels and previews only (no writes).
@@ -342,7 +396,7 @@
         } else {
           const h = Number(card.querySelector('[data-role="hue"]').value);
           const s = Number(card.querySelector('[data-role="sat"]').value);
-          onWrite(id, hsToRgb(h, s));
+          onWrite(id, { ...hsToRgb(h, s), effect: 'none' }); // picking a colour stops any animation
         }
       });
     }
@@ -481,7 +535,8 @@
           brightness: desired.brightness ?? 100,
           r: desired.r ?? 255,
           g: desired.g ?? 255,
-          b: desired.b ?? 255
+          b: desired.b ?? 255,
+          effect: desired.effect ?? 'none'
         };
         const statusLine = reportedStatusLine(desired, reported);
         const statusIsError = reported.commError === true;
@@ -511,8 +566,10 @@
         && reported.brightness === (desired.brightness ?? 100)
         && reported.r === (desired.r ?? 255)
         && reported.g === (desired.g ?? 255)
-        && reported.b === (desired.b ?? 255);
-      return matches ? 'Applied' : 'Applying…';
+        && reported.b === (desired.b ?? 255)
+        && (reported.effect ?? 'none') === (desired.effect ?? 'none');
+      if (!matches) return 'Applying…';
+      return isAnimated(desired.effect) && desired.on ? 'Applied · animating on the controller' : 'Applied';
     }
 
     // ============================================================
@@ -618,7 +675,8 @@
             && reported.brightness === (target.brightness ?? 100)
             && reported.r === (target.r ?? 255)
             && reported.g === (target.g ?? 255)
-            && reported.b === (target.b ?? 255);
+            && reported.b === (target.b ?? 255)
+            && (reported.effect ?? 'none') === (target.effect ?? 'none');
           if (matches) matchedCount++;
           else allResolved = false;
         }
@@ -673,7 +731,8 @@
         brightness: desired.brightness ?? 100,
         r: desired.r ?? 255,
         g: desired.g ?? 255,
-        b: desired.b ?? 255
+        b: desired.b ?? 255,
+        effect: desired.effect ?? 'none'
       };
       const hex = rgbToHex(state.r, state.g, state.b);
       const memberIds = Object.keys(group.lightIds || {});
@@ -699,7 +758,12 @@
       // normal colours, since they have their own solid background.
       let cardStyle = '';
       let cardClass = 'light-card group-card';
-      if (state.on) {
+      if (state.on && isAnimated(state.effect)) {
+        // Animated: the card background slowly cycles through the hues
+        // too (styles.css .group-card-animated), at the same 150 s pace.
+        cardStyle = ` style="--tint-paper: #f4f0e4; --tint-paper-dim: #e4ddcc; --anim-delay: ${phaseDelay(150000)};"`;
+        cardClass += ' group-card-colored group-card-animated';
+      } else if (state.on) {
         const { paper, paperDim } = pickTextColors(state.r, state.g, state.b);
         cardStyle = ` style="background-color: ${hex}; --tint-paper: ${paper}; --tint-paper-dim: ${paperDim};"`;
         cardClass += ' group-card-colored';

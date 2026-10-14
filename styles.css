@@ -1143,6 +1143,79 @@ input[type="range"].light-brightness::-moz-range-thumb {
 }
 .lc-swatch.active .lc-swatch-tick { opacity: 1; transform: scale(1); }
 
+/* ---- Animated presets: a third row of squares in a labelled box ----
+   Negative side margins equal to the box's padding + border keep the
+   squares exactly the same size and column-aligned as the rows above. */
+.lc-anim-box {
+  margin: 12px -9px 0;
+  padding: 10px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 0;
+}
+.lc-anim-box legend {
+  padding: 0 6px;
+  margin-left: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--paper-dim);
+}
+
+/* Colour-cycle square: a full hue wheel that slowly turns. */
+.lc-swatch-rainbow {
+  background: conic-gradient(from 0deg,
+    hsl(0 95% 55%), hsl(60 95% 55%), hsl(120 95% 50%), hsl(180 95% 50%),
+    hsl(240 95% 60%), hsl(300 95% 58%), hsl(360 95% 55%));
+}
+.lc-swatch.lc-swatch-rainbow {
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%, rgba(0, 0, 0, 0.14)),
+    conic-gradient(from 0deg,
+      hsl(0 95% 55%), hsl(60 95% 55%), hsl(120 95% 50%), hsl(180 95% 50%),
+      hsl(240 95% 60%), hsl(300 95% 58%), hsl(360 95% 55%));
+  animation: lc-hue-spin 20s linear infinite;
+}
+.lc-swatch.lc-swatch-rainbow .lc-swatch-tick { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); }
+@keyframes lc-hue-spin { to { filter: hue-rotate(360deg); } }
+
+/* Empty animated slot: classic pink/black "missing texture" checkerboard. */
+.lc-swatch.lc-swatch-missing {
+  background: repeating-conic-gradient(#ff00dc 0 25%, #111111 0 50%) 0 0 / 50% 50%;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+.lc-swatch.lc-swatch-missing:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.3); }
+
+/* A group running an animation: the card background slowly cycles
+   through the hues at the same 150 s pace as the bulbs. It's a layer
+   behind the content so only the colour rotates, not the text. */
+/* --lc-hue is a registered (animatable) property, so the colour itself
+   moves round the wheel at an even saturation/lightness - a hue-rotate()
+   filter muddies some hues (yellows came out olive). */
+@property --lc-hue {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+@keyframes lc-hue-wheel { to { --lc-hue: 360; } }
+.group-card-animated { overflow: hidden; isolation: isolate; }
+.group-card-animated::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: hsl(var(--lc-hue) 62% 40%);
+  animation: lc-hue-wheel 150s linear infinite;
+  animation-delay: var(--anim-delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-swatch.lc-swatch-rainbow,
+  .group-card-animated::after { animation: none; }
+}
+
 /* Colour sliders: label + value on one line, a full-width slider below. */
 .lc-sliders { display: flex; flex-direction: column; gap: 14px; }
 .lc-slider-head {
