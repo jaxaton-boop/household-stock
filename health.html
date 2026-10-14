@@ -47,9 +47,9 @@
         <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
 
         <p class="sub" style="margin:-4px 0 16px;font-size:12.5px;">
-          Status of the hardware running this system. Currently reporting: the central hub
-          (Raspberry Pi). As more devices (e.g. the Lights ESP32) start reporting their own
-          health, they'll appear here automatically — no page changes needed.
+          Status of the hardware running this system: the central hub (Raspberry Pi) and the
+          Hue Bridge Controller. Any other device that starts reporting its own health appears
+          here automatically — no page changes needed.
         </p>
 
         <div class="health-grid" id="healthGrid">Loading…</div>
@@ -59,7 +59,7 @@
 
   <script type="module">
     import {
-      rtdb, initAuthGate, evaluateHealthStatus, HEALTH_THRESHOLDS, HEALTH_STALE_AFTER_MS
+      rtdb, initAuthGate, escapeHtml, evaluateHealthStatus, HEALTH_THRESHOLDS, HEALTH_STALE_AFTER_MS
     } from "./app-shared.js";
     import {
       ref, onValue
@@ -113,12 +113,41 @@
         </div>`;
     }
 
+    // A device can raise its own problem (e.g. the Hue Bridge Controller
+    // reporting "Ethernet link down") via reported.alert = 'warning' |
+    // 'critical' plus reported.alertReason. The card shows whichever is
+    // worse: that, or the standard threshold/staleness check. "Offline"
+    // (stale lastSeen) always wins, since a stale alert can't be trusted.
+    const STATUS_RANK = { ok: 0, warning: 1, critical: 2 };
+    function deviceStatus(reported) {
+      const base = evaluateHealthStatus(reported);
+      if (base === 'offline') return base;
+      const own = reported.alert;
+      if (own in STATUS_RANK && STATUS_RANK[own] > (STATUS_RANK[base] ?? 0)) return own;
+      return base;
+    }
+
+    // Optional extra detail rows a device chooses to show, as an ordered
+    // list of { label, value } (RTDB may hand it back as an object with
+    // "0", "1"... keys, so both shapes are accepted).
+    function infoRowsHtml(info) {
+      if (!info) return '';
+      const rows = (Array.isArray(info) ? info : Object.values(info))
+        .filter(r => r && r.label !== undefined && r.value !== undefined);
+      if (rows.length === 0) return '';
+      return `
+        <dl class="health-info">
+          ${rows.map(r => `<dt>${escapeHtml(String(r.label))}</dt><dd>${escapeHtml(String(r.value))}</dd>`).join('')}
+        </dl>`;
+    }
+
     function renderDeviceCard(deviceId, entry) {
       const meta = entry.meta || {};
       const reported = entry.reported || {};
-      const status = evaluateHealthStatus(reported);
-      const name = meta.name || deviceId;
-      const role = meta.role || meta.type || '';
+      const status = deviceStatus(reported);
+      const name = escapeHtml(meta.name || deviceId);
+      const role = escapeHtml(meta.role || meta.type || '');
+      const showReason = (status === 'warning' || status === 'critical') && reported.alertReason;
 
       const metricsHtml = METRIC_DISPLAY
         .map(m => metricRowHtml(m.field, m.label, m.unit, reported[m.field]))
@@ -136,7 +165,9 @@
             </div>
             <span class="health-pill ${status}">${STATUS_LABELS[status] || status}</span>
           </div>
+          ${showReason ? `<div class="health-alert ${status}">${escapeHtml(String(reported.alertReason))}</div>` : ''}
           ${metricsHtml ? `<div class="health-metrics">${metricsHtml}</div>` : ''}
+          ${infoRowsHtml(reported.info)}
           <div class="health-footer ${lastSeenStale ? 'stale' : ''}">
             Last reported: ${formatAgo(reported.lastSeen)}${uptimeText}
           </div>

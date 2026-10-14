@@ -803,6 +803,7 @@ input[type="range"].light-brightness::-moz-range-thumb {
   overflow: hidden;
 }
 .health-bar-fill {
+  display: block; /* it's a <span> - without this its width is ignored and the bar never fills */
   height: 100%;
   background: var(--accent-bright);
   border-radius: 999px;
@@ -826,6 +827,40 @@ input[type="range"].light-brightness::-moz-range-thumb {
   color: var(--paper-dim);
 }
 .health-footer.stale { color: var(--danger-bright); }
+
+/* A device's own reason for a Warning/Critical status (e.g. "Ethernet
+   link to the Hue Bridge is down"), shown under the card title. */
+.health-alert {
+  margin-top: 10px;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: rgba(201, 169, 74, 0.12);
+  color: #d9bc63;
+}
+.health-alert.critical { background: rgba(192, 96, 74, 0.14); color: var(--danger-bright); }
+
+/* Optional per-device detail rows (label / value), e.g. Wi-Fi: Primary. */
+.health-info {
+  margin: 14px 0 0;
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 6px 10px;
+}
+.health-info dt {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  color: var(--paper-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 1px;
+}
+.health-info dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--paper);
+  overflow-wrap: anywhere;
+}
 
 .preset-row { align-items: flex-start; }
 .preset-grid {
