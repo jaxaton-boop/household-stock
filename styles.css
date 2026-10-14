@@ -1484,3 +1484,24 @@ input[type="range"].lc-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0
    the .home-box-settings panel used by configured/unconfigured boxes. */
 .home-box-editing select { width: 100%; margin-top: 4px; }
 select.add-module-select { background: var(--surface-raised); border: 1px solid var(--border); border-radius: 7px; color: var(--paper); padding: 9px 11px; font-family: 'Inter', sans-serif; font-size: 14px; margin-top: 8px; }
+
+/* ---- Fireplace animated preset ----
+   The tile and an animating group card flicker gently. The group card
+   overrides the colour-cycle hue wheel with a fire glow. */
+@keyframes lc-fire-flicker {
+  0%, 100% { filter: brightness(1)    saturate(1); }
+  14%      { filter: brightness(0.86) saturate(1.08); }
+  29%      { filter: brightness(1.07) saturate(1); }
+  47%      { filter: brightness(0.9)  saturate(1.12); }
+  63%      { filter: brightness(1.12) saturate(0.98); }
+  81%      { filter: brightness(0.84) saturate(1.1); }
+}
+.lc-swatch.lc-swatch-fire { animation: lc-fire-flicker 2.8s ease-in-out infinite; }
+.group-card-animated.group-card-anim-fireplace::after {
+  background: linear-gradient(0deg, #6a1503 0%, #9c2c07 45%, #b8430c 80%, #c4570f 100%);
+  animation: lc-fire-flicker 3.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-swatch.lc-swatch-fire,
+  .group-card-animated.group-card-anim-fireplace::after { animation: none; }
+}

@@ -152,6 +152,7 @@
     // older cached stylesheet is still being used.
     const SWATCH_SHINE = 'linear-gradient(145deg, rgba(255,255,255,0.22), rgba(255,255,255,0) 55%, rgba(0,0,0,0.14))';
     const RAINBOW_DIAGONAL = 'linear-gradient(135deg, hsl(0,95%,55%), hsl(45,95%,55%), hsl(90,85%,48%), hsl(150,85%,45%), hsl(200,90%,52%), hsl(250,90%,62%), hsl(300,90%,58%), hsl(345,95%,55%))';
+    const FIRE_GRADIENT = 'linear-gradient(0deg, #5e1002 0%, #b8320a 32%, #ee6f12 62%, #ffb22e 84%, #ffd860 100%)';
     const MISSING_CHECKER =
       'background-color:#111111;' +
       'background-image:linear-gradient(45deg,#ff00dc 25%,transparent 25%,transparent 75%,#ff00dc 75%),' +
@@ -161,7 +162,8 @@
     const ANIMATED_PRESETS = [
       { effect: 'hue_cycle', name: 'Colour cycle', swatchClass: 'lc-swatch-rainbow',
         swatchStyle: `background-color:#888888;background-image:${SWATCH_SHINE},${RAINBOW_DIAGONAL};` },
-      { effect: null, name: 'Not set up yet' },
+      { effect: 'fireplace', name: 'Fireplace', swatchClass: 'lc-swatch-fire',
+        swatchStyle: `background-color:#b8320a;background-image:${SWATCH_SHINE},${FIRE_GRADIENT};` },
       { effect: null, name: 'Not set up yet' },
       { effect: null, name: 'Not set up yet' },
       { effect: null, name: 'Not set up yet' }
@@ -287,8 +289,9 @@
         `;
       }).join('');
 
-      const summarySwatch = isAnimated(effect)
-        ? `<span class="lc-summary-swatch lc-swatch-rainbow" style="background-image:${RAINBOW_DIAGONAL};"></span>`
+      const activeAnim = ANIMATED_PRESETS.find(p => p.effect && p.effect === effect);
+      const summarySwatch = activeAnim
+        ? `<span class="lc-summary-swatch ${activeAnim.swatchClass}" style="${activeAnim.swatchStyle}"></span>`
         : `<span class="lc-summary-swatch" style="background:${hex}"></span>`;
 
       // Brightness sits on the card face, above the dropdown, so it's
@@ -554,7 +557,7 @@
         const statusIsError = reported.commError === true;
 
         return `
-          <div class="light-card" data-id="${id}">
+          <div class="light-card" data-id="${escapeHtml(id)}">
             <div class="light-card-top">
               <div class="light-name">${escapeHtml(name)}</div>
               <label class="switch">
@@ -774,7 +777,9 @@
         // Animated: the card background slowly cycles through the hues
         // too (styles.css .group-card-animated), at the same 150 s pace.
         cardStyle = ` style="--tint-paper: #f4f0e4; --tint-paper-dim: #e4ddcc; --anim-delay: ${phaseDelay(150000)};"`;
-        cardClass += ' group-card-colored group-card-animated';
+        // Per-effect class, e.g. group-card-anim-fireplace (styles.css). The
+        // effect name comes from the database, so strip anything unexpected.
+        cardClass += ' group-card-colored group-card-animated group-card-anim-' + String(state.effect).replace(/[^a-z0-9_-]/gi, '');
       } else if (state.on) {
         const { paper, paperDim } = pickTextColors(state.r, state.g, state.b);
         cardStyle = ` style="background-color: ${hex}; --tint-paper: ${paper}; --tint-paper-dim: ${paperDim};"`;
@@ -782,7 +787,7 @@
       }
 
       return `
-        <div class="${cardClass}" data-id="${id}"${cardStyle}>
+        <div class="${cardClass}" data-id="${escapeHtml(id)}"${cardStyle}>
           <div class="light-card-top">
             <div class="light-name">${escapeHtml(name)}</div>
             <label class="switch">
@@ -808,7 +813,7 @@
         const checked = memberIds.includes(lid);
         return `
           <label class="assign-lights-row">
-            <input type="checkbox" class="assign-light-checkbox" data-light-id="${lid}" ${checked ? 'checked' : ''}>
+            <input type="checkbox" class="assign-light-checkbox" data-light-id="${escapeHtml(lid)}" ${checked ? 'checked' : ''}>
             <span>${escapeHtml(name)}</span>
           </label>
         `;
