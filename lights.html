@@ -147,8 +147,20 @@
     // traffic while it runs. `effect` is the value written to
     // desired.effect ("none" = static colour). A slot with effect: null
     // hasn't been built yet and shows a pink/black "missing" checkerboard.
+    // Tile artwork is set inline (not only in styles.css) and uses plain
+    // linear gradients only, so it shows in every browser and even if an
+    // older cached stylesheet is still being used.
+    const SWATCH_SHINE = 'linear-gradient(145deg, rgba(255,255,255,0.22), rgba(255,255,255,0) 55%, rgba(0,0,0,0.14))';
+    const RAINBOW_DIAGONAL = 'linear-gradient(135deg, hsl(0,95%,55%), hsl(45,95%,55%), hsl(90,85%,48%), hsl(150,85%,45%), hsl(200,90%,52%), hsl(250,90%,62%), hsl(300,90%,58%), hsl(345,95%,55%))';
+    const MISSING_CHECKER =
+      'background-color:#111111;' +
+      'background-image:linear-gradient(45deg,#ff00dc 25%,transparent 25%,transparent 75%,#ff00dc 75%),' +
+      'linear-gradient(45deg,#ff00dc 25%,transparent 25%,transparent 75%,#ff00dc 75%);' +
+      'background-size:24px 24px;background-position:0 0,12px 12px;';
+
     const ANIMATED_PRESETS = [
-      { effect: 'hue_cycle', name: 'Colour cycle', swatchClass: 'lc-swatch-rainbow' },
+      { effect: 'hue_cycle', name: 'Colour cycle', swatchClass: 'lc-swatch-rainbow',
+        swatchStyle: `background-color:#888888;background-image:${SWATCH_SHINE},${RAINBOW_DIAGONAL};` },
       { effect: null, name: 'Not set up yet' },
       { effect: null, name: 'Not set up yet' },
       { effect: null, name: 'Not set up yet' },
@@ -260,7 +272,7 @@
       const animTiles = ANIMATED_PRESETS.map(p => {
         if (!p.effect) {
           return `
-            <button type="button" class="lc-swatch lc-swatch-missing" data-name="${escapeHtml(p.name)}"
+            <button type="button" class="lc-swatch lc-swatch-missing" style="${MISSING_CHECKER}" data-name="${escapeHtml(p.name)}"
               title="${escapeHtml(p.name)}" aria-label="Empty animated preset slot" aria-disabled="true" tabindex="-1"></button>
           `;
         }
@@ -269,14 +281,14 @@
         return `
           <button type="button" class="lc-swatch ${p.swatchClass} ${active ? 'active' : ''}" data-role="anim-preset" data-effect="${p.effect}"
             data-name="${escapeHtml(p.name)}" title="${escapeHtml(p.name)}" aria-label="${escapeHtml(p.name)} animated preset"
-            aria-pressed="${active}" style="--tick: #ffffff; animation-delay: ${phaseDelay(20000)};">
+            aria-pressed="${active}" style="${p.swatchStyle}--tick: #ffffff; animation-delay: ${phaseDelay(20000)};">
             <svg class="lc-swatch-tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12.5 10 17.5 19 7"/></svg>
           </button>
         `;
       }).join('');
 
       const summarySwatch = isAnimated(effect)
-        ? `<span class="lc-summary-swatch lc-swatch-rainbow"></span>`
+        ? `<span class="lc-summary-swatch lc-swatch-rainbow" style="background-image:${RAINBOW_DIAGONAL};"></span>`
         : `<span class="lc-summary-swatch" style="background:${hex}"></span>`;
 
       // Brightness sits on the card face, above the dropdown, so it's
